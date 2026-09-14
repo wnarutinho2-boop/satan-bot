@@ -58,7 +58,7 @@ function msgKind(m) {
 
 // nuke (owner): recria o canal a cada 12h
 const NUKE_STATE = path.join(ROOT, 'nuke_state.json');
-const NUKE_EVERY_MS = 6 * 60 * 60 * 1000;
+const NUKE_EVERY_MS = 3 * 60 * 60 * 1000;
 
 // bump reminder (estilo fibo): 2h apos o bump do disboard, repete a cada 2h
 const DISBOARD_ID = '302050872383242240';
@@ -96,7 +96,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 6h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 3h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -769,7 +769,7 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: barraResto(nextAt) },
         { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 6h. o relogio anda a cada 5 segundos.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 3h. o relogio anda a cada 5 segundos.' },
       ],
     }],
   };
