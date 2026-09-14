@@ -19,10 +19,10 @@
   ],
   "on": true,
   "nextTalkAt": 1789426340242.603,
-  "lastReplyAt": 1789424797507,
+  "lastReplyAt": 1789424657241,
   "debug": {
-    "ts": 1789424797820,
-    "etapa": "chamou_llm",
-    "det": "Zoeira"
+    "ts": 1789424837538,
+    "etapa": "llm_ok",
+    "det": "eu tá tudo ddn, né?"
   }
 }
