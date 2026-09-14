@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 12h limpa o chat das calls, o ・confessionario e o canal do comando (na hora do comando nao limpa nada) / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 12h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -353,9 +353,10 @@ client.on('messageCreate', async (m) => {
       if (c === '.nuke' || c === '.nuke on') {
         const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id };
         await m.delete().catch(() => {});
+        const pch = canalDoPainel(m.guild, m.channel.id);
         let painelId = null;
-        try { const pm = await m.channel.send(nukePainelMsg(st2.nextAt)); painelId = pm.id; } catch (e) { err(e); }
-        if (painelId) st2.painel = { channelId: m.channel.id, messageId: painelId };
+        try { const pm = await pch.send(nukePainelMsg(st2.nextAt)); painelId = pm.id; } catch (e) { err(e); }
+        if (painelId) st2.painel = { channelId: pch.id, messageId: painelId };
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
         ghStateSyncTick();
         log('NUKE_ON_GLOBAL', { guild: m.guild.id, nextAt: st2.nextAt, cmdChannel: m.channel.id, painel: painelId });
@@ -367,7 +368,8 @@ client.on('messageCreate', async (m) => {
         }
         await m.delete().catch(() => {});
         fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
-        await m.channel.send(nukeOffMsg()).catch(() => {});
+        const choff = canalDoPainel(m.guild, m.channel.id);
+        await choff.send(nukeOffMsg()).catch(() => {});
         ghStateSyncTick();
         log('NUKE_OFF_GLOBAL', { guild: m.guild.id });
       }
@@ -797,10 +799,19 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: '# NUKE ARMADO' },
         { type: 10, content: 'próxima limpeza: **' + fmtResto(nextAt) + '**' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (já vem configurado) + **este canal**.\nrepete a cada 12h. o painel conta o tempo em tempo real e nunca desliga sozinho.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o painel conta o tempo em tempo real e nunca desliga sozinho.' },
       ],
     }],
   };
+}
+// canal do painel: o do comando, mas NUNCA o confessionario (cai no bump)
+function canalDoPainel(guild, preferId) {
+  let ch = null;
+  if (preferId) ch = guild.channels.cache.get(preferId) || null;
+  if (!ch || /confessionar/i.test(ch.name || '')) {
+    ch = guild.channels.cache.find((cc) => cc.type === 0 && /^bump$/i.test(cc.name || '')) || ch;
+  }
+  return ch;
 }
 function nukeOffMsg() {
   return {
@@ -810,14 +821,14 @@ function nukeOffMsg() {
     ]}],
   };
 }
-// limpa: chat das calls + ・confessionario + canal onde o dono deu .nuke on
-async function limparServer(guild, extraId) {
+// limpa: chat das calls + ・confessionario (alvo fixo; canal do comando nunca entra)
+async function limparServer(guild) {
   let msgs = 0;
   for (const ch of guild.channels.cache.values()) {
     try {
-      // 2 = canal de voz (chat da call); texto so se for o confessionario ou o canal do comando
+      // 2 = canal de voz (chat da call); texto so o confessionario
       const ehConf = (ch.type === 0 || ch.type === 5) && /confessionar/i.test(ch.name || '');
-      if (ch.type === 2 || ehConf || (extraId && ch.id === extraId)) {
+      if (ch.type === 2 || ehConf) {
         while (true) {
           const del = await ch.bulkDelete(100, true).catch(() => null);
           if (!del || del.size === 0) break;
@@ -840,7 +851,7 @@ async function nukeTick() {
     if (Date.now() >= st.nextAt) {
       const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
       if (!guild) return;
-      const r = await limparServer(guild, st.cmdChannel || null);
+      const r = await limparServer(guild);
       st.nextAt = Date.now() + NUKE_EVERY_MS;
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
       ghStateSyncTick();
@@ -855,7 +866,8 @@ async function atualizarPainelNuke(st) {
   try {
     if (!st || st.on !== true || !st.nextAt) return;
     if (!st.painel || !st.painel.channelId) {
-      const ch = await client.channels.fetch(st.cmdChannel).catch(() => null);
+      const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
+      const ch = guild ? canalDoPainel(guild, st.cmdChannel) : null;
       if (!ch) return;
       const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
       if (pm) { st.painel = { channelId: ch.id, messageId: pm.id }; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
