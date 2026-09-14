@@ -37,7 +37,8 @@ function runFfmpeg(args) {
 
 // recebe caminho do arquivo baixado + tipo; devolve { buf, ext } quadrado e dentro do limite
 async function makeSquareSticker(src, kind) {
-  const attempts = kind === 'foto' ? [['320'], ['256'], ['160']] : [['320', '15'], ['160', '10'], ['128', '8']];
+  // animado: mantem o FPS REAL da fonte; se estourar 512KB, reduz resolucao (fps por ultimo)
+  const attempts = kind === 'foto' ? [['320'], ['256'], ['160']] : [['320'], ['160'], ['128'], ['128', '10']];
   let lastSize = 0;
   for (const [sc, fps] of attempts) {
     const ext = kind === 'foto' ? 'png' : 'gif';
