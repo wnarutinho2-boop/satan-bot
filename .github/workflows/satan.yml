@@ -2,6 +2,9 @@ name: satan
 on:
   workflow_dispatch:
   push:                      # editar/arquivar pelo site do GitHub religa o bot na hora
+    paths-ignore:
+      - 'nuke_state.json'    # commit de estado NAO religa o bot
+      - 'bump_state.json'
   schedule:
     - cron: '5 */6 * * *'    # religa sozinho a cada 6h (job maximo = 6h)
 concurrency:
