@@ -21,8 +21,8 @@
   "nextTalkAt": 1789426340242.603,
   "lastReplyAt": 1789424797507,
   "debug": {
-    "ts": 1789424977823,
-    "etapa": "llm_ok",
-    "det": "vai testar"
+    "ts": 1789424982841,
+    "etapa": "webhook_ok",
+    "det": "204"
   }
 }
