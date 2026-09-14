@@ -99,9 +99,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.nuke on** — recria o canal na hora e repete a cada 12h\n**.nuke off** — desliga o nuke no canal\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.menu** — este menu' },
-          { type: 14, spacing: 1, divider: false },
-          { type: 10, content: 'bump: aviso na hora + lembrete 2h; .bump escolhe quem eu marco (@pessoa / @cargo / eu).' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — recria o canal e repete a cada 12h / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -145,17 +143,15 @@ function bumpAvisoMsg(target) {
 }
 
 // ---------- painel do bump: multi-selecao de quem o lembrete marca ----------
-const bumpPick = new Map();     // guildId -> modo de espera
 const bumpPanelMsg = new Map(); // guildId -> id da mensagem do painel
 
-function bumpPanel(st, extra) {
+function bumpPanel(st) {
   const body = [
     '**Painel do bump**',
     '',
     `Quem eu marco no lembrete de 2h: ${mentionsOf(st.target)}`,
     '',
-    'Pode combinar vc + pessoas + cargos. Quando terminar, aperta CONCLUIR.',
-    extra ? '\n' + extra : '',
+    'Escolhe nas listas ai embaixo — sem digitar nada.',
   ].join('\n');
   return {
     flags: 1 << 15,
@@ -163,14 +159,11 @@ function bumpPanel(st, extra) {
       type: 17, accent_color: 8912896,
       components: [
         { type: 10, content: body },
+        { type: 1, components: [{ type: 5, custom_id: 'bump_sel_user', min_values: 1, max_values: 25, placeholder: '+ escolher pessoa(s)' }] },
+        { type: 1, components: [{ type: 6, custom_id: 'bump_sel_role', min_values: 1, max_values: 25, placeholder: '+ escolher cargo(s)' }] },
         { type: 1, components: [
           { type: 2, style: 3, label: 'Me inclui', custom_id: 'bump_self' },
-          { type: 2, style: 1, label: '+ Pessoa', custom_id: 'bump_user' },
-          { type: 2, style: 1, label: '+ Cargo', custom_id: 'bump_role' },
-        ]},
-        { type: 1, components: [
           { type: 2, style: 4, label: 'Zerar (so eu)', custom_id: 'bump_reset' },
-          { type: 2, style: 2, label: 'Concluir', custom_id: 'bump_done' },
         ]},
       ],
     }],
@@ -420,17 +413,6 @@ client.on('messageCreate', async (m) => {
     }
   }
 
-  // ---------- painel do bump: adiciona por mencao enquanto em modo de espera ----------
-  if (m.guild && m.author.id === OWNER_ID && bumpPick.has(m.guild.id) && (m.mentions.users.size || m.mentions.roles.size)) {
-    const st = readJsonSafe(BUMP_STATE, {});
-    const n = bumpAddMentions(st, m);
-    fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-    const pid = bumpPanelMsg.get(m.guild.id);
-    if (pid) await m.channel.messages.fetch(pid).then((p) => p.edit(bumpPanel(st, `adicionei ${n}. mais alguem? menciona ou aperta CONCLUIR no painel.`))).catch(() => {});
-    log('BUMP_ALVO', { target: st.target });
-    return;
-  }
-
   // ---------- coleta do .fig: anexos e links do dono viram figurinha ----------
   if (m.guild && m.author.id === OWNER_ID && figState.has(m.guild.id)) {
     const st = figState.get(m.guild.id);
@@ -522,23 +504,33 @@ client.on('interactionCreate', async (i) => {
     log('FIG_FIM', { guild: i.guild.id, fim, itens: st ? st.lines.length : 0 });
     return;
   }
-  // botoes do painel do bump (so o dono)
-  if (i.isButton() && ['bump_self', 'bump_user', 'bump_role', 'bump_reset', 'bump_done'].includes(i.customId)) {
+  // painel do bump: selects e botoes (so o dono)
+  if ((i.isUserSelectInteraction && i.isUserSelectInteraction() && i.customId === 'bump_sel_user') ||
+      (i.isRoleSelectInteraction && i.isRoleSelectInteraction() && i.customId === 'bump_sel_role')) {
     await i.deferUpdate().catch(() => {});
     if (i.user.id !== OWNER_ID || !i.guild) return;
     const st = readJsonSafe(BUMP_STATE, {});
     st.target = st.target || { users: [], roles: [] };
     st.target.users = st.target.users || [];
     st.target.roles = st.target.roles || [];
-    let extra = null;
-    if (i.customId === 'bump_self') { if (!st.target.users.includes(OWNER_ID)) st.target.users.push(OWNER_ID); }
-    else if (i.customId === 'bump_user') { bumpPick.set(i.guild.id, 'user'); extra = 'agora menciona a(s) pessoa(s) aqui.'; }
-    else if (i.customId === 'bump_role') { bumpPick.set(i.guild.id, 'role'); extra = 'agora menciona o cargo aqui.'; }
-    else if (i.customId === 'bump_reset') { st.target = { users: [], roles: [] }; bumpPick.delete(i.guild.id); }
-    else if (i.customId === 'bump_done') { bumpPick.delete(i.guild.id); }
+    const ids = i.values || [];
+    if (i.customId === 'bump_sel_user') for (const id of ids) if (!st.target.users.includes(id)) st.target.users.push(id);
+    else for (const id of ids) if (!st.target.roles.includes(id)) st.target.roles.push(id);
     fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-    bumpPanelMsg.set(i.guild.id, i.message.id);
-    await i.message.edit(bumpPanel(st, extra)).catch(() => {});
+    await i.message.edit(bumpPanel(st)).catch(() => {});
+    log('BUMP_PAINEL', { custom: i.customId, ids, target: st.target });
+    return;
+  }
+  if (i.isButton() && ['bump_self', 'bump_reset'].includes(i.customId)) {
+    await i.deferUpdate().catch(() => {});
+    if (i.user.id !== OWNER_ID || !i.guild) return;
+    const st = readJsonSafe(BUMP_STATE, {});
+    st.target = st.target || { users: [], roles: [] };
+    st.target.users = st.target.users || [];
+    if (i.customId === 'bump_self') { if (!st.target.users.includes(OWNER_ID)) st.target.users.push(OWNER_ID); }
+    else st.target = { users: [], roles: [] };
+    fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+    await i.message.edit(bumpPanel(st)).catch(() => {});
     log('BUMP_PAINEL', { custom: i.customId, target: st.target });
     return;
   }
