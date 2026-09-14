@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { buildSticker } = require('./fig.js');
 
 // token vem do .env ao lado — nao precisa de variavel de ambiente nem de chave na mao
 if (!process.env.DISCORD_TOKEN) {
@@ -178,6 +179,39 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
+// ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
+const figState = new Map(); // guildId -> { msgId, lines: [] }
+
+function figPanel(st, fim) {
+  const body = [
+    '**Fabrica de figurinhas**' + (fim ? ` — ${fim}` : ' — coleta ATIVA'),
+    '',
+    'Manda foto, video ou gif (arquivo anexado) ou link direto de gif/video/imagem.',
+    'Cada item vira na hora uma figurinha QUADRADA 320x320 deste server.',
+    'Quando acabar, aperta CONCLUIR.',
+  ];
+  if (st && st.lines.length) body.push('', ...st.lines.slice(-12));
+  const comps = [{ type: 10, content: body.join('\n') }];
+  if (!fim) comps.push({
+    type: 1,
+    components: [
+      { type: 2, style: 3, label: 'Concluir', custom_id: 'fig_done' },
+      { type: 2, style: 4, label: 'Cancelar', custom_id: 'fig_cancel' },
+    ],
+  });
+  return { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: comps }] };
+}
+
+async function figCreate(guild, url, name, ctype) {
+  const { buf, ext } = await buildSticker(url, name, ctype);
+  const base = ((name || 'fig').split(/[\\/]/).pop().replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9_]/gi, '') || 'fig').slice(0, 24);
+  const existing = new Set((await guild.stickers.fetch()).map((s) => s.name));
+  let nm = base, i = 2;
+  while (existing.has(nm)) nm = (base.slice(0, 20) + '_' + i++).slice(0, 30);
+  const stick = await guild.stickers.create({ name: nm, tags: nm, file: { data: buf, name: `${nm}.${ext}` } });
+  return stick.name;
+}
+
 client.on('messageCreate', async (m) => {
   // bump reminder: detecta a confirmacao de bump do disboard e agenda lembrete a cada 2h
   if (m.author.id === DISBOARD_ID && m.guild) {
@@ -302,6 +336,41 @@ client.on('messageCreate', async (m) => {
       }
       return;
     }
+    // .fig — abre o painel da fabrica de figurinhas (dono)
+    if (c === '.fig') {
+      if (figState.has(m.guild.id)) {
+        await m.channel.send('ja tem coleta ativa aqui. termina no botao CONCLUIR.').catch(() => {});
+        return;
+      }
+      const msg = await m.channel.send(figPanel(null)).catch((e) => { err(e); return null; });
+      if (msg) {
+        figState.set(m.guild.id, { msgId: msg.id, lines: [] });
+        log('FIG_ON', { guild: m.guild.id, channel: m.channelId });
+      }
+      return;
+    }
+  }
+
+  // ---------- coleta do .fig: anexos e links do dono viram figurinha ----------
+  if (m.guild && m.author.id === OWNER_ID && figState.has(m.guild.id)) {
+    const st = figState.get(m.guild.id);
+    const srcs = [];
+    for (const a of m.attachments.values()) srcs.push({ url: a.url, name: a.name, ctype: a.contentType });
+    for (const l of (m.content.match(/https?:\/\/\S+/g) || [])) srcs.push({ url: l, name: l.split('/').pop().split('?')[0] });
+    if (srcs.length) {
+      for (const s of srcs) {
+        try {
+          const nm = await figCreate(m.guild, s.url, s.name, s.ctype);
+          st.lines.push('ok: ' + nm);
+          log('FIG_OK', { guild: m.guild.id, name: nm });
+        } catch (e) {
+          st.lines.push('erro (' + (s.name || s.url).slice(0, 30) + '): ' + String(e.message).slice(0, 90));
+          err(e);
+        }
+        await m.channel.messages.fetch(st.msgId).then((p) => p.edit(figPanel(st))).catch(() => {});
+      }
+      return;
+    }
   }
 
   // ---------- anti-flood: apaga na hora, sem esperar o flood terminar ----------
@@ -363,7 +432,17 @@ client.on('messageCreate', async (m) => {
 });
 
 client.on('interactionCreate', async (i) => {
-  // nao existem slash commands nem componentes interativos: ignora e loga
+  // botoes do painel .fig (so o dono)
+  if (i.isButton() && (i.customId === 'fig_done' || i.customId === 'fig_cancel')) {
+    await i.deferUpdate().catch(() => {});
+    if (i.user.id !== OWNER_ID || !i.guild) return;
+    const st = figState.get(i.guild.id);
+    figState.delete(i.guild.id);
+    const fim = i.customId === 'fig_done' ? 'concluido' : 'cancelado';
+    if (st) await i.channel.messages.fetch(st.msgId).then((p) => p.edit(figPanel(st, fim))).catch(() => {});
+    log('FIG_FIM', { guild: i.guild.id, fim, itens: st ? st.lines.length : 0 });
+    return;
+  }
   if (i.isChatInputCommand()) log('SLASH_IGNORADO', { user: i.user.id, cmd: i.commandName });
 });
 
