@@ -1014,7 +1014,11 @@ async function llm(prompt, maxTok) {
   const t = (r.out || '').trim();
   return t || null;
 }
+let criandoFalsos = false;
 async function criarFalsos(ch) {
+  if (criandoFalsos) return readJsonSafe(FAKE_STATE, {});
+  criandoFalsos = true;
+  try {
   const st = readJsonSafe(FAKE_STATE, {});
   if (st.personas && st.personas.length) return st;
   const txt = await llm('Crie um JSON valido (array com 2 objetos) com personas de membros brasileiros reais de um discord de zoeira. campos: "nome" (so primeiro nome, comum no BR), "personalidade", "jeito". Responda SO o JSON.', 300);
@@ -1044,6 +1048,7 @@ async function criarFalsos(ch) {
   ghStateSyncTick();
   log('FALSOS_CRIADOS', { nomes: st.personas.map((x) => x.nome) });
   return st;
+  } finally { criandoFalsos = false; }
 }
 async function responderFalso(m) {
   try {
@@ -1062,17 +1067,24 @@ async function responderFalso(m) {
     const msgs = await m.channel.messages.fetch({ limit: 12 }).catch(() => null);
     const ctx = msgs ? [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)
       .map((x) => x.author.username + ': ' + (x.content || '')).filter((t) => t.length > 4).join('\n') : '';
+    const st2 = st;
+    const trace = (etapa, det) => { st2.debug = { ts: Date.now(), etapa, det: String(det == null ? '' : det).slice(0, 160) }; fs.writeFileSync(FAKE_STATE, JSON.stringify(st2, null, 2)); ghStateSyncTick(); };
+    trace('chamou_llm', pp.nome);
     const fala = await llm('Voce e "' + pp.nome + '", membro humano brasileiro de um discord de zoeira. Personalidade: ' + pp.personalidade + '. Jeito: ' + pp.jeito + '.\nConversa recente:\n' + ctx + '\n' + m.author.username + ' acabou de escrever: "' + c.slice(0, 200) + '"\nResponda DIRETO a ele agora. UMA frase curta, informal, pt-BR, gíria, minusculas. NUNCA diga que e bot ou IA. SO a mensagem, sem aspas.', 50);
-    if (!fala) return;
+    if (!fala) { trace('llm_null', ''); return; }
     const clean = fala.split('\n')[0].trim().slice(0, 190);
-    if (!clean) return;
+    if (!clean) { trace('fala_vazia', ''); return; }
+    trace('llm_ok', clean);
     setTimeout(() => {
       fetch('https://discord.com/api/v10/webhooks/' + pp.webhookId + '/' + pp.webhookToken, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: clean, username: pp.nome, avatar_url: pp.avatar }),
-      }).then(() => log('FALSO_RESPONDEU', { nome: pp.nome, fala: clean })).catch((e) => err(e));
+      }).then((r) => { log('FALSO_RESPONDEU', { nome: pp.nome, status: r.status }); trace('webhook_ok', r.status); }).catch((e) => { err(e); trace('webhook_erro', e.message); });
     }, (2 + Math.random() * 4) * 1000);
-  } catch (e) { err(e); }
+  } catch (e) {
+    err(e);
+    try { const stx = readJsonSafe(FAKE_STATE, {}); stx.debug = { ts: Date.now(), etapa: 'erro_geral', det: (e && e.message || '').slice(0, 160) }; fs.writeFileSync(FAKE_STATE, JSON.stringify(stx, null, 2)); ghStateSyncTick(); } catch {}
+  }
 }
 async function falsosTick() {
   try {
