@@ -109,9 +109,11 @@ function menuMsg() {
 }
 
 // lembrete de bump (components V2), marca o alvo configurado (.bump)
-function mentionOf(t) {
-  if (!t) return `<@${OWNER_ID}>`;
-  return t.type === 'role' ? `<@&${t.id}>` : `<@${t.id}>`;
+function mentionsOf(t) {
+  const us = (t && t.users) || [];
+  const rs = (t && t.roles) || [];
+  if (!us.length && !rs.length) return `<@${OWNER_ID}>`;
+  return [...us.map((id) => `<@${id}>`), ...rs.map((id) => `<@&${id}>`)].join(' ');
 }
 function bumpMsg(target) {
   return {
@@ -121,7 +123,7 @@ function bumpMsg(target) {
         type: 17,
         accent_color: 8912896,
         components: [
-          { type: 10, content: `${mentionOf(target)} hora do bump — o disboard tá liberado de novo.` },
+          { type: 10, content: `${mentionsOf(target)} hora do bump — o disboard tá liberado de novo.` },
         ],
       },
     ],
@@ -135,11 +137,54 @@ function bumpAvisoMsg(target) {
         type: 17,
         accent_color: 8912896,
         components: [
-          { type: 10, content: `Bump registrado. ${mentionOf(target)}, vou te marcar aqui daqui a 2 horas pra bumpar de novo.` },
+          { type: 10, content: `Bump registrado. ${mentionsOf(target)} — vou marcar aqui daqui a 2 horas pra bumpar de novo.` },
         ],
       },
     ],
   };
+}
+
+// ---------- painel do bump: multi-selecao de quem o lembrete marca ----------
+const bumpPick = new Map();     // guildId -> modo de espera
+const bumpPanelMsg = new Map(); // guildId -> id da mensagem do painel
+
+function bumpPanel(st, extra) {
+  const body = [
+    '**Painel do bump**',
+    '',
+    `Quem eu marco no lembrete de 2h: ${mentionsOf(st.target)}`,
+    '',
+    'Pode combinar vc + pessoas + cargos. Quando terminar, aperta CONCLUIR.',
+    extra ? '\n' + extra : '',
+  ].join('\n');
+  return {
+    flags: 1 << 15,
+    components: [{
+      type: 17, accent_color: 8912896,
+      components: [
+        { type: 10, content: body },
+        { type: 1, components: [
+          { type: 2, style: 3, label: 'Me inclui', custom_id: 'bump_self' },
+          { type: 2, style: 1, label: '+ Pessoa', custom_id: 'bump_user' },
+          { type: 2, style: 1, label: '+ Cargo', custom_id: 'bump_role' },
+        ]},
+        { type: 1, components: [
+          { type: 2, style: 4, label: 'Zerar (so eu)', custom_id: 'bump_reset' },
+          { type: 2, style: 2, label: 'Concluir', custom_id: 'bump_done' },
+        ]},
+      ],
+    }],
+  };
+}
+
+function bumpAddMentions(st, m) {
+  st.target = st.target || { users: [], roles: [] };
+  st.target.users = st.target.users || [];
+  st.target.roles = st.target.roles || [];
+  let n = 0;
+  for (const u of m.mentions.users.values()) if (!st.target.users.includes(u.id)) { st.target.users.push(u.id); n++; }
+  for (const r of m.mentions.roles.values()) if (!st.target.roles.includes(r.id)) { st.target.roles.push(r.id); n++; }
+  return n;
 }
 
 let seq = 0;
@@ -346,25 +391,18 @@ client.on('messageCreate', async (m) => {
       }
       return;
     }
-    // .bump — escolhe quem o lembrete de bump vai marcar (dono)
+    // .bump — painel de quem o lembrete marca (dono); .bump @x @y adiciona direto
     if (c === '.bump' || c.startsWith('.bump ')) {
       const st = readJsonSafe(BUMP_STATE, {});
-      const cur = st.target || null;
-      if (c === '.bump') {
-        await m.channel.send(`alvo atual do lembrete de bump: ${mentionOf(cur)} — usa **.bump @alguem**, **.bump @cargo** ou **.bump eu**`).catch(() => {});
+      if (m.mentions.users.size || m.mentions.roles.size) {
+        bumpAddMentions(st, m);
+        fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+        await m.channel.send(`adicionado. agora eu marco: ${mentionsOf(st.target)}`).catch(() => {});
+        log('BUMP_ALVO', { target: st.target });
         return;
       }
-      const u = m.mentions.users.first();
-      const r = m.mentions.roles.first();
-      let target = null, lbl;
-      if (u) { target = { type: 'user', id: u.id }; lbl = `<@${u.id}>`; }
-      else if (r) { target = { type: 'role', id: r.id }; lbl = `<@&${r.id}>`; }
-      else if (/\beu\b|dono|\bme\b/.test(c)) { target = { type: 'user', id: OWNER_ID }; lbl = `<@${OWNER_ID}>`; }
-      else { await m.channel.send('nao entendi. exemplos: .bump @fulano | .bump @cargo | .bump eu').catch(() => {}); return; }
-      st.target = target;
-      fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-      await m.channel.send(`fechado: o lembrete de bump agora marca ${lbl}.`).catch(() => {});
-      log('BUMP_ALVO', { channel: m.channelId, target });
+      const msg = await m.channel.send(bumpPanel(st)).catch((e) => { err(e); return null; });
+      if (msg) bumpPanelMsg.set(m.guild.id, msg.id);
       return;
     }
     // .fig — abre o painel da fabrica de figurinhas (dono)
@@ -380,6 +418,17 @@ client.on('messageCreate', async (m) => {
       }
       return;
     }
+  }
+
+  // ---------- painel do bump: adiciona por mencao enquanto em modo de espera ----------
+  if (m.guild && m.author.id === OWNER_ID && bumpPick.has(m.guild.id) && (m.mentions.users.size || m.mentions.roles.size)) {
+    const st = readJsonSafe(BUMP_STATE, {});
+    const n = bumpAddMentions(st, m);
+    fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+    const pid = bumpPanelMsg.get(m.guild.id);
+    if (pid) await m.channel.messages.fetch(pid).then((p) => p.edit(bumpPanel(st, `adicionei ${n}. mais alguem? menciona ou aperta CONCLUIR no painel.`))).catch(() => {});
+    log('BUMP_ALVO', { target: st.target });
+    return;
   }
 
   // ---------- coleta do .fig: anexos e links do dono viram figurinha ----------
@@ -471,6 +520,26 @@ client.on('interactionCreate', async (i) => {
     const fim = i.customId === 'fig_done' ? 'concluido' : 'cancelado';
     if (st) await i.channel.messages.fetch(st.msgId).then((p) => p.edit(figPanel(st, fim))).catch(() => {});
     log('FIG_FIM', { guild: i.guild.id, fim, itens: st ? st.lines.length : 0 });
+    return;
+  }
+  // botoes do painel do bump (so o dono)
+  if (i.isButton() && ['bump_self', 'bump_user', 'bump_role', 'bump_reset', 'bump_done'].includes(i.customId)) {
+    await i.deferUpdate().catch(() => {});
+    if (i.user.id !== OWNER_ID || !i.guild) return;
+    const st = readJsonSafe(BUMP_STATE, {});
+    st.target = st.target || { users: [], roles: [] };
+    st.target.users = st.target.users || [];
+    st.target.roles = st.target.roles || [];
+    let extra = null;
+    if (i.customId === 'bump_self') { if (!st.target.users.includes(OWNER_ID)) st.target.users.push(OWNER_ID); }
+    else if (i.customId === 'bump_user') { bumpPick.set(i.guild.id, 'user'); extra = 'agora menciona a(s) pessoa(s) aqui.'; }
+    else if (i.customId === 'bump_role') { bumpPick.set(i.guild.id, 'role'); extra = 'agora menciona o cargo aqui.'; }
+    else if (i.customId === 'bump_reset') { st.target = { users: [], roles: [] }; bumpPick.delete(i.guild.id); }
+    else if (i.customId === 'bump_done') { bumpPick.delete(i.guild.id); }
+    fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+    bumpPanelMsg.set(i.guild.id, i.message.id);
+    await i.message.edit(bumpPanel(st, extra)).catch(() => {});
+    log('BUMP_PAINEL', { custom: i.customId, target: st.target });
     return;
   }
   if (i.isChatInputCommand()) log('SLASH_IGNORADO', { user: i.user.id, cmd: i.commandName });
