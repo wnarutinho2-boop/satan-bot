@@ -308,6 +308,7 @@ client.on('messageCreate', async (m) => {
   // TODA mensagem conta pro flood, independente de qual regra ja pegou ela
   try {
     if (!m.guild) return;
+    if (m.author.id === OWNER_ID) return; // o dono e imune: nada e apagado nele
     const cfg = readJsonSafe(ANTIFLOOD_CFG, ANTIFLOOD_DEFAULT);
     const reasons = [];
     const now = Date.now();
