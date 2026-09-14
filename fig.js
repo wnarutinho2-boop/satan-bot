@@ -37,10 +37,12 @@ function runFfmpeg(args) {
 
 // recebe caminho do arquivo baixado + tipo; devolve { buf, ext } quadrado e dentro do limite
 async function makeSquareSticker(src, kind) {
-  // animado: mantem o FPS REAL da fonte; se estourar 512KB, reduz resolucao (fps por ultimo)
-  const attempts = kind === 'foto' ? [['320'], ['256'], ['160']] : [['320'], ['160'], ['128'], ['128', '10']];
+  // animado: mantem o FPS REAL da fonte; se estourar 512KB, reduz resolucao/paleta (fps por ultimo)
+  const attempts = kind === 'foto'
+    ? [['320', null, null], ['256', null, null], ['160', null, null]]
+    : [['320', null, 128], ['160', null, 128], ['128', null, 96], ['96', null, 64], ['64', null, 64], ['64', '10', 64]];
   let lastSize = 0;
-  for (const [sc, fps] of attempts) {
+  for (const [sc, fps, colors] of attempts) {
     const ext = kind === 'foto' ? 'png' : 'gif';
     const out = path.join(os.tmpdir(), `fig_${process.pid}_${Date.now()}.${ext}`);
     let vf = (fps ? `fps=${fps},` : '') + CROP + `,scale=${sc}:${sc}:flags=lanczos`;
@@ -48,7 +50,7 @@ async function makeSquareSticker(src, kind) {
     if (kind === 'foto') {
       args.push('-vf', vf, '-frames:v', '1', out);
     } else {
-      vf += ',split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse';
+      vf += `,split[s0][s1];[s0]palettegen=max_colors=${colors || 128}[p];[s1][p]paletteuse`;
       args.push('-vf', vf, '-loop', '0', out);
     }
     await runFfmpeg(args);
