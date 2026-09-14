@@ -186,7 +186,7 @@ function figPanel(st, fim) {
   const body = [
     '**Fabrica de figurinhas**' + (fim ? ` — ${fim}` : ' — coleta ATIVA'),
     '',
-    'Manda foto, video ou gif (arquivo anexado) ou link direto de gif/video/imagem.',
+    'Manda foto, video ou gif como ARQUIVO ANEXADO (um ou varios na mesma mensagem).',
     'Cada item vira na hora uma figurinha QUADRADA 320x320 deste server.',
     'Quando acabar, aperta CONCLUIR.',
   ];
@@ -356,7 +356,6 @@ client.on('messageCreate', async (m) => {
     const st = figState.get(m.guild.id);
     const srcs = [];
     for (const a of m.attachments.values()) srcs.push({ url: a.url, name: a.name, ctype: a.contentType });
-    for (const l of (m.content.match(/https?:\/\/\S+/g) || [])) srcs.push({ url: l, name: l.split('/').pop().split('?')[0] });
     if (srcs.length) {
       for (const s of srcs) {
         try {
