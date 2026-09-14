@@ -2,21 +2,21 @@
   "personas": [
     {
       "nome": "Zoeira",
-      "personalidade": "Alegre e divertida",
-      "jeito": "Brincalhona e carinhosa",
+      "personalidade": "Aventurosa",
+      "jeito": "Energético",
       "avatar": "https://raw.githubusercontent.com/wnarutinho2-boop/satan-bot/main/assets/falso1.png",
-      "webhookId": "1549177117437071562",
-      "webhookToken": "ON6XLmWUBwlX4vjNrOmZGBb4zXouJR8f8BWIbp3DyYp_6Iiwi-x-owAwRJdWAO5Z-zUi"
+      "webhookId": "1549177369133195347",
+      "webhookToken": "s_Kl_lFKR_kmYznoNpr24xyORDUpgbCqoPaCmxQhFvfXScCLmJVA3XYeM9YlSOTd847D"
     },
     {
-      "nome": "Gabriela",
-      "personalidade": "Inteligente e analítica",
-      "jeito": "Calma e séria",
+      "nome": "Pedro",
+      "personalidade": "Saudável",
+      "jeito": "Respeitoso",
       "avatar": "https://raw.githubusercontent.com/wnarutinho2-boop/satan-bot/main/assets/falso2.png",
-      "webhookId": "1549177118728921190",
-      "webhookToken": "MtFCL0tGv1jbUNLnJnONpS6iW5hZe8Cc5xCyfNXrm31gcdNsQ1ahOURd0O9OmnY0RjKM"
+      "webhookId": "1549177370399735969",
+      "webhookToken": "xF6Que-YbpA2gqb-6EuZqxaB32va0yiPJqN4zU6pNnZ0kA-UQ_Xbf8SXyFhn15_Puach"
     }
   ],
   "on": true,
-  "nextTalkAt": 1789423187544
+  "nextTalkAt": 1789423247532
 }
