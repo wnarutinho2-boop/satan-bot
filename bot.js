@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
-const { buildSticker } = require('./fig.js');
+const { figCreate } = require('./fig.js');
 
 // token vem do .env ao lado — nao precisa de variavel de ambiente nem de chave na mao
 if (!process.env.DISCORD_TOKEN) {
@@ -200,16 +200,6 @@ function figPanel(st, fim) {
     ],
   });
   return { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: comps }] };
-}
-
-async function figCreate(guild, url, name, ctype) {
-  const { buf, ext } = await buildSticker(url, name, ctype);
-  const base = ((name || 'fig').split(/[\\/]/).pop().replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9_]/gi, '') || 'fig').slice(0, 24);
-  const existing = new Set((await guild.stickers.fetch()).map((s) => s.name));
-  let nm = base, i = 2;
-  while (existing.has(nm)) nm = (base.slice(0, 20) + '_' + i++).slice(0, 30);
-  const stick = await guild.stickers.create({ name: nm, tags: nm, file: { data: buf, name: `${nm}.${ext}` } });
-  return stick.name;
 }
 
 client.on('messageCreate', async (m) => {
