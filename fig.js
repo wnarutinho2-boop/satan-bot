@@ -104,16 +104,14 @@ async function buildSticker(url, name, ctype, hop) {
   }
 }
 
+// nome fixo de toda figurinha (pedido do dono); discord aceita nomes repetidos
+const NOME_FIG = 'discord.gg/inferninho';
+
 // cria a figurinha no server (guild = objeto discord.js): baixa, quadrado, upload
-// nome unico garantido; devolve o nome final
 async function figCreate(guild, url, name, ctype) {
   const { buf, ext } = await buildSticker(url, name, ctype);
-  const base = ((name || 'fig').split(/[\\/]/).pop().replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9_]/gi, '') || 'fig').slice(0, 24);
-  const existing = new Set((await guild.stickers.fetch()).map((s) => s.name));
-  let nm = base, i = 2;
-  while (existing.has(nm)) nm = (base.slice(0, 20) + '_' + i++).slice(0, 30);
-  const stick = await guild.stickers.create({ name: nm, tags: nm, file: { attachment: buf, name: `${nm}.${ext}` } });
+  const stick = await guild.stickers.create({ name: NOME_FIG, tags: NOME_FIG, file: { attachment: buf, name: `${NOME_FIG}.${ext}` } });
   return stick.name;
 }
 
-module.exports = { sniffKind, makeSquareSticker, buildSticker, figCreate, MAX_BYTES };
+module.exports = { sniffKind, makeSquareSticker, buildSticker, figCreate, NOME_FIG, MAX_BYTES };
