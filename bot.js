@@ -221,7 +221,7 @@ client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
   varrerLinks().catch(err); // apaga link que entrou durante o reinicio
-  atualizarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(err); // recria/atualiza o countdown do nuke
+  garantirPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(err); // recria o painel do nuke se sumiu
   // slash commands removidos a pedido do dono (nao registrar mais)
   // varre arquivos de saida que ja existam
   scanOutbox();
@@ -353,10 +353,21 @@ client.on('messageCreate', async (m) => {
       if (c === '.nuke' || c === '.nuke on') {
         const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id };
         await m.delete().catch(() => {});
-        const pch = canalDoPainel(m.guild, m.channel.id);
-        let painelId = null;
-        try { const pm = await pch.send(nukePainelMsg(st2.nextAt)); painelId = pm.id; } catch (e) { err(e); }
-        if (painelId) st2.painel = { channelId: pch.id, messageId: painelId };
+        const stPrev = readJsonSafe(NUKE_STATE, {});
+        const alvo = canalDoPainel(m.guild, m.channel.id);
+        if (stPrev && stPrev.painel && stPrev.painel.channelId) {
+          if (stPrev.painel.channelId === alvo.id) {
+            st2.painel = stPrev.painel;
+            await editarPainelNuke(st2);
+          } else {
+            const och = await client.channels.fetch(stPrev.painel.channelId).catch(() => null);
+            if (och) await och.messages.fetch(stPrev.painel.messageId).then((mm) => mm.delete().catch(() => {})).catch(() => {});
+          }
+        }
+        if (!st2.painel) {
+          const pm = await alvo.send(nukePainelMsg(st2.nextAt)).catch(() => null);
+          if (pm) st2.painel = { channelId: alvo.id, messageId: pm.id };
+        }
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
         ghStateSyncTick();
         log('NUKE_ON_GLOBAL', { guild: m.guild.id, nextAt: st2.nextAt, cmdChannel: m.channel.id, painel: painelId });
@@ -791,15 +802,16 @@ function fmtResto(nextAt) {
   return h + 'h ' + String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
 }
 function nukePainelMsg(nextAt) {
+  const sec = Math.floor(nextAt / 1000);
   return {
     flags: 1 << 15,
     components: [{
       type: 17, accent_color: 8912896,
       components: [
         { type: 10, content: '# NUKE ARMADO' },
-        { type: 10, content: 'próxima limpeza: **' + fmtResto(nextAt) + '**' },
+        { type: 10, content: 'tempo restante: <t:' + sec + ':R>\npróxima limpeza: <t:' + sec + ':T>' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o painel conta o tempo em tempo real e nunca desliga sozinho.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o relogio anda sozinho na sua tela — o bot nao precisa editar nada.' },
       ],
     }],
   };
@@ -847,7 +859,7 @@ async function nukeTick() {
   try {
     const st = readJsonSafe(NUKE_STATE, {});
     if (!st || st.on !== true || !st.nextAt) return;
-    await atualizarPainelNuke(st);
+    await garantirPainelNuke(st);
     if (Date.now() >= st.nextAt) {
       const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
       if (!guild) return;
@@ -855,19 +867,20 @@ async function nukeTick() {
       st.nextAt = Date.now() + NUKE_EVERY_MS;
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
       ghStateSyncTick();
-      await atualizarPainelNuke(st);
+      await editarPainelNuke(st);
       log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, nextAt: st.nextAt });
     }
   } catch (e) { err(e); }
 }
 
-// atualiza (ou recria) o painel de countdown do nuke; roda a cada tick e no restart
-async function atualizarPainelNuke(st) {
+// recria o painel so se ele tiver sumido (restart/apagaram); nao edita por minuto (zero rate limit)
+async function garantirPainelNuke(st) {
   try {
     if (!st || st.on !== true || !st.nextAt) return;
+    const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
+    if (!guild) return;
     if (!st.painel || !st.painel.channelId) {
-      const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
-      const ch = guild ? canalDoPainel(guild, st.cmdChannel) : null;
+      const ch = canalDoPainel(guild, st.cmdChannel);
       if (!ch) return;
       const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
       if (pm) { st.painel = { channelId: ch.id, messageId: pm.id }; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
@@ -879,9 +892,17 @@ async function atualizarPainelNuke(st) {
     if (!msg) {
       const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
       if (pm) { st.painel.messageId = pm.id; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
-      return;
     }
-    await msg.edit(nukePainelMsg(st.nextAt)).catch(() => {});
+  } catch (e) { err(e); }
+}
+// edita o painel (usado no .nuke on e apos cada limpeza de 12h)
+async function editarPainelNuke(st) {
+  try {
+    if (!st || !st.painel || !st.painel.channelId) return;
+    const ch = await client.channels.fetch(st.painel.channelId).catch(() => null);
+    if (!ch) return;
+    const msg = await ch.messages.fetch(st.painel.messageId).catch(() => null);
+    if (msg) await msg.edit(nukePainelMsg(st.nextAt)).catch(() => {});
   } catch (e) { err(e); }
 }
 // lembrete de bump: a cada 2h desde o ultimo bump, repete ate bumpar de novo
