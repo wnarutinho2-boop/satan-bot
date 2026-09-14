@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — limpa TODOS os chats do server (canais de texto + chat das calls) na hora e a cada 12h / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — limpa o ・confessionario e o chat das calls na hora e a cada 12h (inferno e bump ficam em paz) / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -353,7 +353,7 @@ client.on('messageCreate', async (m) => {
         const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS };
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
         const r = await limparServer(m.guild).catch((e) => { err(e); return { msgs: 0 }; });
-        await m.channel.send({ content: 'nuke ligado no server inteiro: limpei ' + r.msgs + ' mensagens (todos os chats, incluindo o chat das calls). repete a cada 12h. .nuke on de novo reinicia a contagem.' }).catch(() => {});
+        await m.channel.send({ content: 'nuke ligado: limpei ' + r.msgs + ' mensagens (・confessionario + chat das calls; inferno e bump nao mexo). repete a cada 12h. .nuke on de novo reinicia a contagem.' }).catch(() => {});
         log('NUKE_ON_GLOBAL', { guild: m.guild.id, msgs: r.msgs, nextAt: st2.nextAt });
       } else {
         fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
@@ -769,13 +769,14 @@ async function doNuke(ch) {
   return clone;
 }
 
-// limpa o server inteiro: apaga as mensagens de todos os canais de texto e do chat das calls
+// limpa so o ・confessionario e o chat das calls (inferno e bump ficam em paz)
 async function limparServer(guild) {
   let msgs = 0;
   for (const ch of guild.channels.cache.values()) {
     try {
-      // 0 = canal de texto, 5 = anuncios, 2 = canal de voz (chat da call)
-      if (ch.type === 0 || ch.type === 5 || ch.type === 2) {
+      // 2 = canal de voz (chat da call); texto so se for o confessionario
+      const ehConf = (ch.type === 0 || ch.type === 5) && /confessionar/i.test(ch.name || '');
+      if (ch.type === 2 || ehConf) {
         while (true) {
           const del = await ch.bulkDelete(100, true).catch(() => null);
           if (!del || del.size === 0) break;
