@@ -57,12 +57,41 @@ async function makeSquareSticker(src, kind) {
   throw new Error(`nao coube em 512KB (ultimo: ${Math.round(lastSize / 1024)}KB)`);
 }
 
+// tira de uma pagina HTML o link da midia direta (og:video > og:image > url solta)
+function extractMediaUrl(html) {
+  const grab = (re) => {
+    const m = html.match(re);
+    return m ? m[1].replace(/&amp;/g, '&') : null;
+  };
+  return (
+    grab(/<meta[^>]+property="og:video(?::secure_url|:url)?"[^>]+content="([^"]+)"/i) ||
+    grab(/<meta[^>]+content="([^"]+)"[^>]+property="og:video(?::secure_url|:url)?"/i) ||
+    grab(/<meta[^>]+name="twitter:player:stream"[^>]+content="([^"]+)"/i) ||
+    grab(/<meta[^>]+property="og:image(?::secure_url)?"[^>]+content="([^"]+)"/i) ||
+    grab(/<meta[^>]+content="([^"]+)"[^>]+property="og:image(?::secure_url)?"/i) ||
+    grab(/(https?:\/\/[^"'<>\s]+?\.(?:gif|mp4|webm)(?:\?[^"'<>\s]*)?)/i)
+  );
+}
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
 // baixa uma midia (url) e devolve { buf, ext, kind } pronto pra virar sticker
-async function buildSticker(url, name, ctype) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('download ' + res.status);
+async function buildSticker(url, name, ctype, hop) {
+  const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: '*/*' } });
+  if (!res.ok) {
+    if (res.status === 403 || res.status === 429) throw new Error('o site bloqueou o download (' + res.status + ') - manda o arquivo ou um link direto de midia');
+    throw new Error('download ' + res.status);
+  }
   const raw = Buffer.from(await res.arrayBuffer());
-  const kind = sniffKind(raw, name, ctype || res.headers.get('content-type'));
+  const ct = (ctype || res.headers.get('content-type') || '').toLowerCase();
+  // pagina HTML: tenta resolver a midia direta dentro dela (1 pulo so)
+  if (ct.includes('text/html') || raw.slice(0, 15).toString('utf8').toLowerCase().startsWith('<!doctype html') || raw.slice(0, 5).toString('utf8').toLowerCase() === '<html') {
+    if (hop) throw new Error('pagina sem midia direta');
+    const media = extractMediaUrl(raw.toString('utf8'));
+    if (!media) throw new Error('pagina protegida ou sem midia - manda o arquivo ou link direto');
+    return buildSticker(media, media.split('/').pop().split('?')[0], null, true);
+  }
+  const kind = sniffKind(raw, name, ct);
   const tmp = path.join(os.tmpdir(), `fig_in_${process.pid}_${Date.now()}`);
   fs.writeFileSync(tmp, raw);
   try {
