@@ -30,6 +30,14 @@ const floodBuf = new Map();
 const repBuf = new Map();
 const penaltyUntil = new Map();
 
+// castigo (timeout) progressivo: repetiu 10+ vezes -> 1h, e +1h a cada reincidencia
+const MUTE_STATE = path.join(ROOT, 'mute_state.json');
+const MUTE_BASE_MS = 60 * 60 * 1000;
+const REP_MUTE_QTD = 10;
+const repStreak = new Map(); // userId -> { sig, count }
+const linkBuf = new Map();   // userId -> [timestamps de links]
+const RE_LINK = /(https?:\/\/|discord\.gg\/|discord\.com\/invite|discordapp\.com\/)/i;
+
 // assinatura da mensagem: vale pra TUDO (texto, emoji, figurinha, imagem, gif, embed)
 function msgSig(m) {
   const txt = (m.content || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -211,14 +219,19 @@ const client = new Client({
 client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
+  varrerLinks().catch(err); // apaga link que entrou durante o reinicio
   // slash commands removidos a pedido do dono (nao registrar mais)
   // varre arquivos de saida que ja existam
   scanOutbox();
 });
 
-// se alguém conseguir adicionar o bot em outro server, ele sai sozinho
+// server novo: so entra se o dono adicionou; ai vira casa oficial (welcome + varredura)
 client.on('guildCreate', async (g) => {
-  if (!INFERNO_GUILDS.has(g.id)) {
+  const dono = await g.fetchOwner().catch(() => null);
+  if (dono && dono.user && dono.user.id === OWNER_ID) {
+    INFERNO_GUILDS.add(g.id);
+    log('GUILD_NOVA_DO_DONO', { guild: g.id, name: g.name });
+  } else {
     log('GUILD_LEAVE', { guild: g.id, name: g.name });
     try { await g.leave(); } catch (e) { err(e); }
   }
@@ -237,7 +250,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -474,6 +487,49 @@ client.on('messageCreate', async (m) => {
     }
   }
 
+async function aplicarCastigo(m, motivo) {
+  const st = readJsonSafe(MUTE_STATE, {});
+  const rec = st[m.author.id] || { level: 0, until: 0 };
+  if (Date.now() < rec.until) return; // ja esta de castigo agora
+  rec.level += 1;
+  const horas = rec.level;
+  rec.until = Date.now() + horas * MUTE_BASE_MS;
+  st[m.author.id] = rec;
+  fs.writeFileSync(MUTE_STATE, JSON.stringify(st, null, 2));
+  repStreak.delete(m.author.id);
+  linkBuf.delete(m.author.id);
+  const aviso = `Você tomou castigo de ${horas} hora${horas > 1 ? 's' : ''}. Caso continue floodando, o tempo aumentará pra ${horas + 1} horas e assim consecutivamente.`;
+  try {
+    await m.member.timeout(horas * MUTE_BASE_MS, 'flood: ' + motivo);
+    log('CASTIGO', { author: m.author.id, horas, motivo });
+  } catch (e) { err(e); }
+  // aviso so pra pessoa: o Discord nao deixa mensagem invisivel solta, entao vai por DM (privada)
+  await m.author.send(aviso).catch(async () => {
+    const tmp = await m.channel.send(`${m.author} ${aviso}`).catch(() => null);
+    if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
+  });
+}
+
+// varre os canais ao ligar: apaga link que passou enquanto o bot reiniciava
+async function varrerLinks() {
+  for (const gid of INFERNO_GUILDS) {
+    const g = client.guilds.cache.get(gid);
+    if (!g) continue;
+    for (const ch of [...g.channels.cache.values()]) {
+      if (!ch.isTextBased()) continue;
+      try {
+        const msgs = await ch.messages.fetch({ limit: 100 });
+        const alvos = msgs.filter((x) => !x.author.bot && x.author.id !== OWNER_ID && RE_LINK.test(x.content || '') && x.deletable);
+        if (!alvos.size) continue;
+        await ch.bulkDelete(alvos, true).catch(async () => {
+          for (const x of [...alvos.values()]) await x.delete().catch(() => {});
+        });
+        log('VARREDURA', { canal: ch.id, apagadas: alvos.size });
+      } catch (e) { /* sem permissao no canal, segue */ }
+    }
+  }
+}
+
   // ---------- anti-flood: apaga na hora, sem esperar o flood terminar ----------
   // TODA mensagem conta pro flood, independente de qual regra ja pegou ela
   try {
@@ -487,7 +543,7 @@ client.on('messageCreate', async (m) => {
     if (m.content.length > cfg.chars) reasons.push(`chars>${cfg.chars}`);
 
     // 1.5) qualquer link / convite de server morre na hora
-    if (/(https?:\/\/|discord\.gg\/|discord\.com\/invite|discordapp\.com\/)/i.test(m.content)) reasons.push('link');
+    if (RE_LINK.test(m.content)) reasons.push('link');
 
     // 2) mensagem repetida: compara com as 3 últimas do mesmo autor (pega
     //    "emoji, emoji" e tambem "emoji1, emoji2, emoji1" alternado)
@@ -521,6 +577,23 @@ client.on('messageCreate', async (m) => {
         }
         if (n) log('ANTIFLOOD_RETRO', { author: m.author.id, apagadas: n });
       }
+    }
+
+    // 5) repetiu a MESMA mensagem mais de 10 vezes -> castigo progressivo
+    {
+      const sig = msgSig(m);
+      const s = repStreak.get(m.author.id);
+      const streak = s && s.sig === sig ? { sig, count: s.count + 1 } : { sig, count: 1 };
+      repStreak.set(m.author.id, streak);
+      if (streak.count > REP_MUTE_QTD) await aplicarCastigo(m, 'repetir a mesma mensagem 10+ vezes');
+    }
+
+    // 6) chuva de link: 10+ links em 10 minutos -> castigo progressivo
+    if (RE_LINK.test(m.content || '')) {
+      const arr = (linkBuf.get(m.author.id) || []).filter((t) => now - t < 10 * 60 * 1000);
+      arr.push(now);
+      linkBuf.set(m.author.id, arr);
+      if (arr.length > REP_MUTE_QTD) await aplicarCastigo(m, 'mandar link 10+ vezes');
     }
 
     if (reasons.length && m.deletable) {
