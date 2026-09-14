@@ -814,7 +814,7 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: barraResto(nextAt) + ' **' + fmtResto(nextAt) + '**' },
         { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. a barra desce sozinha a cada 30 segundos.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o relogio anda a cada 5 segundos.' },
       ],
     }],
   };
@@ -930,7 +930,7 @@ async function bumpTick() {
 
 setInterval(scanOutbox, 1000);
 setInterval(nukeTick, 60 * 1000);
-setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 30 * 1000); // relogio vivo do painel
+setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 5 * 1000); // relogio vivo do painel (5s)
 setInterval(bumpTick, 60 * 1000);
 
 client.login(TOKEN).catch((e) => {
