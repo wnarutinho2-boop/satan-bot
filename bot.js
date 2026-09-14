@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — recria o canal e repete a cada 12h / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — limpa TODOS os chats do server (texto + esvazia calls) na hora e a cada 12h / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -349,25 +349,16 @@ client.on('messageCreate', async (m) => {
   if (m.guild && m.author.id === OWNER_ID) {
     const c = m.content.trim().toLowerCase();
     if (c === '.nuke' || c === '.nuke on' || c === '.nuke off') {
-      const state = readJsonSafe(NUKE_STATE, {});
-      const gid = m.guild.id;
       if (c === '.nuke' || c === '.nuke on') {
-        const ch = m.channel;
-        const name = ch.name;
-        try {
-          const clone = await doNuke(ch);
-          state[gid] = state[gid] || {};
-          state[gid][name] = { channelId: clone.id, nextAt: Date.now() + NUKE_EVERY_MS };
-          fs.writeFileSync(NUKE_STATE, JSON.stringify(state, null, 2));
-          log('NUKE_ON', { guild: gid, name, newId: clone.id, nextAt: state[gid][name].nextAt });
-        } catch (e) { err(e); }
+        const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS };
+        fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
+        const r = await limparServer(m.guild).catch((e) => { err(e); return { msgs: 0, voz: 0 }; });
+        await m.channel.send({ content: 'nuke ligado no server inteiro: limpei ' + r.msgs + ' mensagens e esvaziei ' + r.voz + ' das calls. repete em todos os chats a cada 12h. .nuke on de novo reinicia a contagem.' }).catch(() => {});
+        log('NUKE_ON_GLOBAL', { guild: m.guild.id, msgs: r.msgs, voz: r.voz, nextAt: st2.nextAt });
       } else {
-        if (state[gid]) {
-          delete state[gid][m.channel.name];
-          fs.writeFileSync(NUKE_STATE, JSON.stringify(state, null, 2));
-        }
-        await m.channel.send({ content: 'nuke desligado aqui.' }).catch(() => {});
-        log('NUKE_OFF', { guild: gid, name: m.channel.name });
+        fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
+        await m.channel.send({ content: 'nuke desligado.' }).catch(() => {});
+        log('NUKE_OFF_GLOBAL', { guild: m.guild.id });
       }
       return;
     }
@@ -778,26 +769,45 @@ async function doNuke(ch) {
   return clone;
 }
 
-// confere a cada minuto se algum canal ativado chegou na hora do nuke (12h)
-async function nukeTick() {
-  try {
-    const state = readJsonSafe(NUKE_STATE, {});
-    const now = Date.now();
-    let changed = false;
-    for (const gid of Object.keys(state)) {
-      for (const name of Object.keys(state[gid] || {})) {
-        const e = state[gid][name];
-        if (e && e.nextAt <= now) {
-          const ch = await client.channels.fetch(e.channelId).catch(() => null);
-          if (!ch) { delete state[gid][name]; changed = true; continue; }
-          const clone = await doNuke(ch);
-          state[gid][name] = { channelId: clone.id, nextAt: now + NUKE_EVERY_MS };
-          changed = true;
-          log('NUKE_AUTO', { guild: gid, name, newId: clone.id, nextAt: state[gid][name].nextAt });
+// limpa o server inteiro: apaga as mensagens de todos os canais de texto e esvazia as calls
+async function limparServer(guild) {
+  let msgs = 0, voz = 0;
+  for (const ch of guild.channels.cache.values()) {
+    try {
+      if (ch.type === 0 || ch.type === 5) {
+        while (true) {
+          const del = await ch.bulkDelete(100, true).catch(() => null);
+          if (!del || del.size === 0) break;
+          msgs += del.size;
+          if (del.size < 100) break;
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      } else if (ch.type === 2) {
+        for (const mem of ch.members.values()) {
+          if (!mem.user.bot && mem.id !== OWNER_ID) {
+            await mem.voice.disconnect('nuke').catch(() => {});
+            voz++;
+          }
         }
       }
+    } catch (e) { err(e); }
+  }
+  return { msgs, voz };
+}
+
+// confere a cada minuto se chegou a hora do nuke global (12h)
+async function nukeTick() {
+  try {
+    const st = readJsonSafe(NUKE_STATE, {});
+    if (!st || st.on !== true || !st.nextAt) return;
+    if (Date.now() >= st.nextAt) {
+      const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
+      if (!guild) return;
+      const r = await limparServer(guild);
+      st.nextAt = Date.now() + NUKE_EVERY_MS;
+      fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
+      log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, voz: r.voz, nextAt: st.nextAt });
     }
-    if (changed) fs.writeFileSync(NUKE_STATE, JSON.stringify(state, null, 2));
   } catch (e) { err(e); }
 }
 
