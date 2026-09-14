@@ -65,18 +65,7 @@ const DISBOARD_ID = '302050872383242240';
 const BUMP_STATE = path.join(ROOT, 'bump_state.json');
 const BUMP_EVERY_MS = 2 * 60 * 60 * 1000;
 
-const NUKE_MSG = {
-  flags: 1 << 15,
-  components: [
-    {
-      type: 17,
-      accent_color: 8912896,
-      components: [
-        { type: 10, content: 'As portas do inferno foram abertas.' },
-      ],
-    },
-  ],
-};
+
 
 // boas-vindas (DM pro membro novo)
 const WELCOME_MSG = {
@@ -151,7 +140,6 @@ function bumpAvisoMsg(target) {
 }
 
 // ---------- painel do bump: multi-selecao de quem o lembrete marca ----------
-const bumpPanelMsg = new Map(); // guildId -> id da mensagem do painel
 
 function bumpPanel(st) {
   const body = [
@@ -235,8 +223,6 @@ client.once('ready', async () => {
     }
   })().catch(err);
   // slash commands removidos a pedido do dono (nao registrar mais)
-  // varre arquivos de saida que ja existam
-  scanOutbox();
 });
 
 // server novo: so entra se o dono adicionou; ai vira casa oficial (welcome + varredura)
@@ -464,8 +450,7 @@ client.on('messageCreate', async (m) => {
         log('BUMP_ALVO', { target: st.target });
         return;
       }
-      const msg = await m.channel.send(bumpPanel(st)).catch((e) => { err(e); return null; });
-      if (msg) bumpPanelMsg.set(m.guild.id, msg.id);
+      await m.channel.send(bumpPanel(st)).catch((e) => err(e));
       return;
     }
     // .fig — abre o painel da fabrica de figurinhas (dono)
@@ -670,7 +655,6 @@ client.on('interactionCreate', async (i) => {
     log('BUMP_PAINEL', { custom: i.customId, target: st.target });
     return;
   }
-  if (i.isChatInputCommand()) log('SLASH_IGNORADO', { user: i.user.id, cmd: i.commandName });
 });
 
 client.on('error', err);
@@ -691,43 +675,6 @@ function isBumpDone(m) {
 }
 
 // ---------- outbox: eu escrevo JSON aqui, o bot envia ----------
-function scanOutbox() {
-  let files = [];
-  try {
-    files = fs.readdirSync(OUT).filter((f) => f.endsWith('.json')).sort();
-  } catch (e) {
-    return err(e);
-  }
-  for (const f of files) {
-    const p = path.join(OUT, f);
-    // claim atomico: renomeia antes de processar pra ninguem pegar de novo
-    const proc = p + '.processing';
-    try {
-      fs.renameSync(p, proc);
-    } catch {
-      continue;
-    }
-    let job;
-    try {
-      job = JSON.parse(fs.readFileSync(proc, 'utf8'));
-    } catch (e) {
-      fs.renameSync(proc, p + '.bad');
-      err(new Error(`outbox parse ${f}: ${e.message}`));
-      continue;
-    }
-    handleJob(job)
-      .then((res) => {
-        append(SENT, { file: f, ok: true, res });
-        log('SENT', { file: f, res });
-        fs.rmSync(proc, { force: true });
-      })
-      .catch((e) => {
-        append(SENT, { file: f, ok: false, error: String(e) });
-        log('SEND_FAIL', { file: f, error: String(e) });
-        fs.renameSync(proc, p + '.failed');
-      });
-  }
-}
 
 async function handleJob(job) {
   switch (job.action) {
@@ -786,13 +733,6 @@ function readJsonSafe(p, d) {
 
 // recria um canal (clone mantém nome/permissões/categoria/posição), apaga o original
 // e manda o embed Components V2 no canal novo
-async function doNuke(ch) {
-  const clone = await ch.clone({ reason: 'nuke' });
-  await ch.delete('nuke').catch(() => {});
-  const msg = await clone.send(NUKE_MSG).catch((e) => { err(e); return null; });
-  if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
-  return clone;
-}
 
 // ---------- painel do nuke: countdown Components V2, atualizado a cada minuto ----------
 function fmtResto(nextAt) {
@@ -949,7 +889,6 @@ async function bumpTick() {
 
 // overflow (call cheia -> cria outra) removido a pedido do dono
 
-setInterval(scanOutbox, 1000);
 setInterval(nukeTick, 60 * 1000);
 setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 5 * 1000); // relogio vivo do painel (5s)
 setInterval(bumpTick, 60 * 1000);
