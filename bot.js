@@ -618,8 +618,8 @@ client.on('interactionCreate', async (i) => {
     return;
   }
   // painel do bump: selects e botoes (so o dono)
-  if ((i.isUserSelectInteraction && i.isUserSelectInteraction() && i.customId === 'bump_sel_user') ||
-      (i.isRoleSelectInteraction && i.isRoleSelectInteraction() && i.customId === 'bump_sel_role')) {
+  if ((i.isUserSelectMenu && i.isUserSelectMenu() && i.customId === 'bump_sel_user') ||
+      (i.isRoleSelectMenu && i.isRoleSelectMenu() && i.customId === 'bump_sel_role')) {
     await i.deferUpdate().catch(() => {});
     if (i.user.id !== OWNER_ID || !i.guild) return;
     const st = readJsonSafe(BUMP_STATE, {});
