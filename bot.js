@@ -221,6 +221,7 @@ client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
   varrerLinks().catch(err); // apaga link que entrou durante o reinicio
+  atualizarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(err); // recria/atualiza o countdown do nuke
   // slash commands removidos a pedido do dono (nao registrar mais)
   // varre arquivos de saida que ja existam
   scanOutbox();
@@ -351,14 +352,23 @@ client.on('messageCreate', async (m) => {
     if (c === '.nuke' || c === '.nuke on' || c === '.nuke off') {
       if (c === '.nuke' || c === '.nuke on') {
         const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id };
-        fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
         await m.delete().catch(() => {});
-        const tmp = await m.channel.send({ content: 'nuke armado: a cada 12h vou limpar o chat de todos os canais de voz, o ・confessionario e este canal. nada é limpo agora.' }).catch(() => null);
-        if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 8000);
-        log('NUKE_ON_GLOBAL', { guild: m.guild.id, nextAt: st2.nextAt, cmdChannel: m.channel.id });
+        let painelId = null;
+        try { const pm = await m.channel.send(nukePainelMsg(st2.nextAt)); painelId = pm.id; } catch (e) { err(e); }
+        if (painelId) st2.painel = { channelId: m.channel.id, messageId: painelId };
+        fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
+        ghStateSyncTick();
+        log('NUKE_ON_GLOBAL', { guild: m.guild.id, nextAt: st2.nextAt, cmdChannel: m.channel.id, painel: painelId });
       } else {
+        const stPrev = readJsonSafe(NUKE_STATE, {});
+        if (stPrev && stPrev.painel && stPrev.painel.channelId) {
+          const chp = await client.channels.fetch(stPrev.painel.channelId).catch(() => null);
+          if (chp) await chp.messages.fetch(stPrev.painel.messageId).then((mm) => mm.delete().catch(() => {})).catch(() => {});
+        }
+        await m.delete().catch(() => {});
         fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
-        await m.channel.send({ content: 'nuke desligado.' }).catch(() => {});
+        await m.channel.send(nukeOffMsg()).catch(() => {});
+        ghStateSyncTick();
         log('NUKE_OFF_GLOBAL', { guild: m.guild.id });
       }
       return;
@@ -628,7 +638,7 @@ client.on('interactionCreate', async (i) => {
     return;
   }
   if (i.isButton() && i.customId === 'bump_sel_done') {
-    if (i.user.id !== OWNER_ID) { await i.reply({ content: 'só o dono usa isso.', flags: 64 }); return; }
+    if (i.user.id !== OWNER_ID) { await i.reply({ flags: 64, components: [{ type: 17, accent_color: 8912896, components: [{ type: 10, content: 'só o dono usa isso.' }] }] }); return; }
     await i.deferUpdate().catch(() => {});
     await i.message.delete().catch(() => {});
     return;
@@ -770,6 +780,36 @@ async function doNuke(ch) {
   return clone;
 }
 
+// ---------- painel do nuke: countdown Components V2, atualizado a cada minuto ----------
+function fmtResto(nextAt) {
+  const ms = Math.max(0, nextAt - Date.now());
+  const h = Math.floor(ms / 3600000);
+  const mn = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return h + 'h ' + String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
+}
+function nukePainelMsg(nextAt) {
+  return {
+    flags: 1 << 15,
+    components: [{
+      type: 17, accent_color: 8912896,
+      components: [
+        { type: 10, content: '# NUKE ARMADO' },
+        { type: 10, content: 'próxima limpeza: **' + fmtResto(nextAt) + '**' },
+        { type: 14, spacing: 1 },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (já vem configurado) + **este canal**.\nrepete a cada 12h. o painel conta o tempo em tempo real e nunca desliga sozinho.' },
+      ],
+    }],
+  };
+}
+function nukeOffMsg() {
+  return {
+    flags: 1 << 15,
+    components: [{ type: 17, accent_color: 8912896, components: [
+      { type: 10, content: 'nuke desarmado. painel removido, nada será limpo.' },
+    ]}],
+  };
+}
 // limpa: chat das calls + ・confessionario + canal onde o dono deu .nuke on
 async function limparServer(guild, extraId) {
   let msgs = 0;
@@ -796,17 +836,42 @@ async function nukeTick() {
   try {
     const st = readJsonSafe(NUKE_STATE, {});
     if (!st || st.on !== true || !st.nextAt) return;
+    await atualizarPainelNuke(st);
     if (Date.now() >= st.nextAt) {
       const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
       if (!guild) return;
       const r = await limparServer(guild, st.cmdChannel || null);
       st.nextAt = Date.now() + NUKE_EVERY_MS;
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
+      ghStateSyncTick();
+      await atualizarPainelNuke(st);
       log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, nextAt: st.nextAt });
     }
   } catch (e) { err(e); }
 }
 
+// atualiza (ou recria) o painel de countdown do nuke; roda a cada tick e no restart
+async function atualizarPainelNuke(st) {
+  try {
+    if (!st || st.on !== true || !st.nextAt) return;
+    if (!st.painel || !st.painel.channelId) {
+      const ch = await client.channels.fetch(st.cmdChannel).catch(() => null);
+      if (!ch) return;
+      const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
+      if (pm) { st.painel = { channelId: ch.id, messageId: pm.id }; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
+      return;
+    }
+    const ch = await client.channels.fetch(st.painel.channelId).catch(() => null);
+    if (!ch) return;
+    const msg = await ch.messages.fetch(st.painel.messageId).catch(() => null);
+    if (!msg) {
+      const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
+      if (pm) { st.painel.messageId = pm.id; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
+      return;
+    }
+    await msg.edit(nukePainelMsg(st.nextAt)).catch(() => {});
+  } catch (e) { err(e); }
+}
 // lembrete de bump: a cada 2h desde o ultimo bump, repete ate bumpar de novo
 async function bumpTick() {
   try {
