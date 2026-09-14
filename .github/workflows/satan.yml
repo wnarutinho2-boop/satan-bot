@@ -32,3 +32,4 @@ jobs:
           done
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
