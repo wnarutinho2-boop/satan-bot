@@ -8,7 +8,9 @@ const { execFile } = require('child_process');
 const MAX_BYTES = 512 * 1024;
 
 function ffmpegBin() {
-  return process.env.FFMPEG_PATH || 'ffmpeg';
+  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  try { return require('ffmpeg-static'); } catch {}
+  return 'ffmpeg';
 }
 
 // classifica o binario: video | gif | foto
