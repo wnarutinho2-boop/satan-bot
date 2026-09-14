@@ -19,10 +19,10 @@
   ],
   "on": true,
   "nextTalkAt": 1789426340242.603,
-  "lastReplyAt": 1789424244298,
+  "lastReplyAt": 1789424657241,
   "debug": {
-    "ts": 1789424469765,
-    "etapa": "webhook_ok",
-    "det": "204"
+    "ts": 1789424657534,
+    "etapa": "chamou_llm",
+    "det": "Zoeira"
   }
 }
