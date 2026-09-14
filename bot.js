@@ -101,15 +101,19 @@ function menuMsg() {
           { type: 14, spacing: 1, divider: true },
           { type: 10, content: '**.nuke on** — recria o canal na hora e repete a cada 12h\n**.nuke off** — desliga o nuke no canal\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.menu** — este menu' },
           { type: 14, spacing: 1, divider: false },
-          { type: 10, content: 'bump reminder: automático — 2h depois do /bump eu lembro aqui no canal.' },
+          { type: 10, content: 'bump: aviso na hora + lembrete 2h; .bump escolhe quem eu marco (@pessoa / @cargo / eu).' },
         ],
       },
     ],
   };
 }
 
-// lembrete de bump (components V2), marca quem bumpou
-function bumpMsg(userId) {
+// lembrete de bump (components V2), marca o alvo configurado (.bump)
+function mentionOf(t) {
+  if (!t) return `<@${OWNER_ID}>`;
+  return t.type === 'role' ? `<@&${t.id}>` : `<@${t.id}>`;
+}
+function bumpMsg(target) {
   return {
     flags: 1 << 15,
     components: [
@@ -117,7 +121,21 @@ function bumpMsg(userId) {
         type: 17,
         accent_color: 8912896,
         components: [
-          { type: 10, content: `<@${userId}> hora do bump — o disboard tá liberado de novo.` },
+          { type: 10, content: `${mentionOf(target)} hora do bump — o disboard tá liberado de novo.` },
+        ],
+      },
+    ],
+  };
+}
+function bumpAvisoMsg(target) {
+  return {
+    flags: 1 << 15,
+    components: [
+      {
+        type: 17,
+        accent_color: 8912896,
+        components: [
+          { type: 10, content: `Bump registrado. ${mentionOf(target)}, vou te marcar aqui daqui a 2 horas pra bumpar de novo.` },
         ],
       },
     ],
@@ -208,9 +226,11 @@ client.on('messageCreate', async (m) => {
     if (isBumpDone(m)) {
       const bumper = (m.interaction && m.interaction.user && m.interaction.user.id) || OWNER_ID;
       const st = readJsonSafe(BUMP_STATE, {});
+      const target = st.target || null;
       st[m.channelId] = { nextAt: Date.now() + BUMP_EVERY_MS, lastBumper: bumper };
       fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-      log('BUMP_DETECTADO', { channel: m.channelId, bumper });
+      await m.channel.send(bumpAvisoMsg(target)).catch((e) => err(e));
+      log('BUMP_DETECTADO', { channel: m.channelId, bumper, target });
     }
     return;
   }
@@ -324,6 +344,27 @@ client.on('messageCreate', async (m) => {
         await m.channel.send('.att falhou: ' + e.message).catch(() => {});
         err(e);
       }
+      return;
+    }
+    // .bump — escolhe quem o lembrete de bump vai marcar (dono)
+    if (c === '.bump' || c.startsWith('.bump ')) {
+      const st = readJsonSafe(BUMP_STATE, {});
+      const cur = st.target || null;
+      if (c === '.bump') {
+        await m.channel.send(`alvo atual do lembrete de bump: ${mentionOf(cur)} — usa **.bump @alguem**, **.bump @cargo** ou **.bump eu**`).catch(() => {});
+        return;
+      }
+      const u = m.mentions.users.first();
+      const r = m.mentions.roles.first();
+      let target = null, lbl;
+      if (u) { target = { type: 'user', id: u.id }; lbl = `<@${u.id}>`; }
+      else if (r) { target = { type: 'role', id: r.id }; lbl = `<@&${r.id}>`; }
+      else if (/\beu\b|dono|\bme\b/.test(c)) { target = { type: 'user', id: OWNER_ID }; lbl = `<@${OWNER_ID}>`; }
+      else { await m.channel.send('nao entendi. exemplos: .bump @fulano | .bump @cargo | .bump eu').catch(() => {}); return; }
+      st.target = target;
+      fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+      await m.channel.send(`fechado: o lembrete de bump agora marca ${lbl}.`).catch(() => {});
+      log('BUMP_ALVO', { channel: m.channelId, target });
       return;
     }
     // .fig — abre o painel da fabrica de figurinhas (dono)
@@ -442,11 +483,11 @@ process.on('unhandledRejection', err);
 // 1) o comando que gerou a mensagem eh /bump  2) embed com a cor do disboard
 // 3) texto de sucesso em pt/en/es (bump done, concluido, exito, logrado...)
 const DISBOARD_EMBED_COLOR = 5786862; // 0x5865F2
-const BUMP_OK_RE = /(bump\s*(done|complete[d]?|success)|done\s*bump|sucess|conclu[ií]d|[eé]xito|logrado|gracias|obrigad|thank)/i;
+const BUMP_OK_RE = /(bump\s*(done|feito|complete[d]?|success)|done\s*bump|sucess|conclu[ií]d|[eé]xito|logrado|gracias|obrigad|thank|confira no disboard|disboard\.org\/server)/i;
 function isBumpDone(m) {
   const cmd = m.interaction && m.interaction.commandName;
   if (cmd && cmd.toLowerCase() === 'bump') return true;
-  if (!m.embeds || !m.embeds.length) return false; // erro do disboard vem sem embed publico
+  if (!m.embeds || !m.embeds.length) return BUMP_OK_RE.test(m.content || ''); // formato novo: texto puro, sem embed
   if (m.embeds.some((e) => e.color === DISBOARD_EMBED_COLOR)) return true;
   const hay = (m.content || '') + ' ' + JSON.stringify(m.embeds.map((e) => ({ t: e.title, d: e.description, f: e.fields })));
   return BUMP_OK_RE.test(hay);
@@ -588,7 +629,7 @@ async function bumpTick() {
       if (info && now >= info.nextAt) {
         const ch = await client.channels.fetch(cid).catch(() => null);
         if (!ch) { delete st[cid]; fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2)); continue; }
-        await ch.send(bumpMsg(info.lastBumper || OWNER_ID)).catch((e) => err(e));
+        await ch.send(bumpMsg(st.target)).catch((e) => err(e));
         st[cid] = { ...info, nextAt: now + BUMP_EVERY_MS };
         fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
         log('BUMP_LEMBRETE', { channel: cid, nextAt: st[cid].nextAt });
