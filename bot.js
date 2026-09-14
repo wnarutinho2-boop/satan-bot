@@ -236,6 +236,46 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
+// ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json'];
+async function ghStateLoad() {
+  const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
+  if (!tok || !repo) return;
+  for (const f of GH_STATE_FILES) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/contents/${f}`, { headers: { Authorization: `token ${tok}`, Accept: 'application/vnd.github+json', 'User-Agent': 'satan-state' } });
+      if (!r.ok) continue;
+      const j = await r.json();
+      fs.writeFileSync(path.join(ROOT, f), Buffer.from(j.content, 'base64').toString('utf8'));
+      log('STATE_LOAD', { f });
+    } catch (e) { err(e); }
+  }
+}
+const ghLastMtime = {};
+async function ghStateSyncTick() {
+  const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
+  if (!tok || !repo) return;
+  for (const f of GH_STATE_FILES) {
+    const p = path.join(ROOT, f);
+    let stt; try { stt = fs.statSync(p); } catch { continue; }
+    if (ghLastMtime[f] === stt.mtimeMs) continue;
+    ghLastMtime[f] = stt.mtimeMs;
+    try {
+      const H = { Authorization: `token ${tok}`, Accept: 'application/vnd.github+json', 'User-Agent': 'satan-state', 'Content-Type': 'application/json' };
+      const cur = await fetch(`https://api.github.com/repos/${repo}/contents/${f}`, { headers: H });
+      let sha; if (cur.ok) sha = (await cur.json()).sha;
+      const put = await fetch(`https://api.github.com/repos/${repo}/contents/${f}`, {
+        method: 'PUT', headers: H,
+        body: JSON.stringify({ message: `state ${f}`, content: fs.readFileSync(p).toString('base64'), ...(sha ? { sha } : {}) }),
+      });
+      if (!put.ok) throw new Error('put ' + put.status);
+      log('STATE_SYNC', { f });
+    } catch (e) { err(e); delete ghLastMtime[f]; }
+  }
+}
+ghStateLoad();
+setInterval(ghStateSyncTick, 60 * 1000);
+
 const figState = new Map(); // guildId -> { msgId, lines: [] }
 
 function figPanel(st, fim) {
