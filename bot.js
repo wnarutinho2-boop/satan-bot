@@ -1,0 +1,540 @@
+const fs = require('fs');
+const path = require('path');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
+
+// token vem do .env ao lado — nao precisa de variavel de ambiente nem de chave na mao
+if (!process.env.DISCORD_TOKEN) {
+  try {
+    const env = fs.readFileSync(path.join(__dirname, '.env'), 'utf8');
+    const m = env.match(/DISCORD_TOKEN=(.+)/);
+    if (m) process.env.DISCORD_TOKEN = m[1].trim();
+  } catch {}
+}
+const TOKEN = process.env.DISCORD_TOKEN;
+const ROOT = __dirname;
+const OWNER_ID = '1521612392105250836';          // só o dono usa comandos
+// servers onde o bot fica / boas-vindas ativas (teste + oficial)
+const INFERNO_GUILDS = new Set(['1525806672839442633', '1484007517091528914']);
+const OUT = path.join(ROOT, 'out');
+const INBOX = path.join(ROOT, 'inbox.jsonl');
+const SENT = path.join(ROOT, 'sent.jsonl');
+const ERRORS = path.join(ROOT, 'errors.log');
+
+fs.mkdirSync(OUT, { recursive: true });
+
+// anti-flood (ajustavel via antispam_config.json)
+const ANTIFLOOD_CFG = path.join(ROOT, 'antispam_config.json');
+const ANTIFLOOD_DEFAULT = { chars: 500, windowMs: 6000, max: 5, penaltyMs: 10000, repeatWindowMs: 30000 };
+const floodBuf = new Map();
+const repBuf = new Map();
+const penaltyUntil = new Map();
+
+// assinatura da mensagem: vale pra TUDO (texto, emoji, figurinha, imagem, gif, embed)
+function msgSig(m) {
+  const txt = (m.content || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const em = m.content ? (m.content.match(/<(a?):\w+:(\d+)>/g) || []).join(',') : '';
+  const st = m.stickers && m.stickers.size ? [...m.stickers.values()].map((s) => s.id || s.name).join(',') : '';
+  const at = m.attachments.size ? [...m.attachments.values()].map((a) => a.width || a.height ? `img:${a.width}x${a.height}` : `f:${a.name}`).join(',') : '';
+  const eb = m.embeds.length ? m.embeds.map((e) => (e.image && e.image.url) || (e.thumbnail && e.thumbnail.url) || e.title || 'eb').join('|') : '';
+  return [txt, em, st, at, eb].filter(Boolean).join('#') || 'vazia';
+}
+function msgKind(m) {
+  if (m.stickers && m.stickers.size) return 'figurinha';
+  if (m.attachments.size) return 'arquivo';
+  if (m.embeds.length) return 'embed';
+  const semEmoji = (m.content || '').replace(/<(a?):\w+:(\d+)>/g, '').trim();
+  if (m.content && !semEmoji) return 'emoji';
+  return 'texto';
+}
+
+// nuke (owner): recria o canal a cada 12h
+const NUKE_STATE = path.join(ROOT, 'nuke_state.json');
+const NUKE_EVERY_MS = 12 * 60 * 60 * 1000;
+
+// bump reminder (estilo fibo): 2h apos o bump do disboard, repete a cada 2h
+const DISBOARD_ID = '302050872383242240';
+const BUMP_STATE = path.join(ROOT, 'bump_state.json');
+const BUMP_EVERY_MS = 2 * 60 * 60 * 1000;
+
+const NUKE_MSG = {
+  flags: 1 << 15,
+  components: [
+    {
+      type: 17,
+      accent_color: 8912896,
+      components: [
+        { type: 10, content: 'As portas do inferno foram abertas.' },
+      ],
+    },
+  ],
+};
+
+// boas-vindas (DM pro membro novo)
+const WELCOME_MSG = {
+  flags: 1 << 15,
+  components: [
+    {
+      type: 17,
+      accent_color: 8912896,
+      components: [
+        { type: 10, content: '# Bem-vindo ao Inferno' },
+        { type: 14, spacing: 1, divider: true },
+        { type: 10, content: 'Aqui não existe **nenhuma regra**. Pode falar sobre qualquer assunto, sem censura e sem limite — ninguém vai te julgar, punir ou banir pelo que você disser.' },
+        { type: 14, spacing: 1, divider: false },
+        { type: 10, content: 'Sinta-se em casa. Faça o que quiser.' },
+      ],
+    },
+  ],
+};
+
+// menu de comandos (components V2)
+function menuMsg() {
+  return {
+    flags: 1 << 15,
+    components: [
+      {
+        type: 17,
+        accent_color: 8912896,
+        components: [
+          { type: 10, content: '# Comandos do Satan' },
+          { type: 14, spacing: 1, divider: true },
+          { type: 10, content: '**.nuke on** — recria o canal na hora e repete a cada 12h\n**.nuke off** — desliga o nuke no canal\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.menu** — este menu' },
+          { type: 14, spacing: 1, divider: false },
+          { type: 10, content: 'bump reminder: automático — 2h depois do /bump eu lembro aqui no canal.' },
+        ],
+      },
+    ],
+  };
+}
+
+// lembrete de bump (components V2), marca quem bumpou
+function bumpMsg(userId) {
+  return {
+    flags: 1 << 15,
+    components: [
+      {
+        type: 17,
+        accent_color: 8912896,
+        components: [
+          { type: 10, content: `<@${userId}> hora do bump — o disboard tá liberado de novo.` },
+        ],
+      },
+    ],
+  };
+}
+
+let seq = 0;
+const log = (tag, obj) => {
+  seq++;
+  const line = `#${String(seq).padStart(4,'0')} [${tag}] ${typeof obj === 'string' ? obj : JSON.stringify(obj)}`;
+  console.log(line);
+};
+
+function append(file, obj) {
+  fs.appendFileSync(file, JSON.stringify(obj) + '\n');
+}
+
+function err(e) {
+  const s = `${new Date().toISOString()} ${e && e.stack ? e.stack : e}\n`;
+  fs.appendFileSync(ERRORS, s);
+  console.error('ERR', s.trim());
+}
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMembers,
+  ],
+  partials: [Partials.Channel, Partials.Message],
+});
+
+client.once('ready', async () => {
+  log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
+  client.user.setActivity('o sofrimento dos condenados', { type: 3 });
+  // slash commands removidos a pedido do dono (nao registrar mais)
+  // varre arquivos de saida que ja existam
+  scanOutbox();
+});
+
+// se alguém conseguir adicionar o bot em outro server, ele sai sozinho
+client.on('guildCreate', async (g) => {
+  if (!INFERNO_GUILDS.has(g.id)) {
+    log('GUILD_LEAVE', { guild: g.id, name: g.name });
+    try { await g.leave(); } catch (e) { err(e); }
+  }
+});
+
+// membro novo no inferno -> manda as boas-vindas na DM
+client.on('guildMemberAdd', async (member) => {
+  if (!INFERNO_GUILDS.has(member.guild.id)) return;
+  try {
+    await member.send(WELCOME_MSG);
+    log('WELCOME', { user: member.id, tag: member.user.tag });
+  } catch (e) {
+    log('WELCOME_FAIL', { user: member.id, err: e && e.message });
+  }
+});
+
+client.on('messageCreate', async (m) => {
+  // bump reminder: detecta a confirmacao de bump do disboard e agenda lembrete a cada 2h
+  if (m.author.id === DISBOARD_ID && m.guild) {
+    if (isBumpDone(m)) {
+      const bumper = (m.interaction && m.interaction.user && m.interaction.user.id) || OWNER_ID;
+      const st = readJsonSafe(BUMP_STATE, {});
+      st[m.channelId] = { nextAt: Date.now() + BUMP_EVERY_MS, lastBumper: bumper };
+      fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+      log('BUMP_DETECTADO', { channel: m.channelId, bumper });
+    }
+    return;
+  }
+  if (m.author.bot) return;
+  const rec = {
+    ts: new Date().toISOString(),
+    id: m.id,
+    author: m.author.tag,
+    authorId: m.author.id,
+    where: m.guild ? `guild:${m.guild.id}:${m.channel.name}` : 'dm',
+    channelId: m.channelId,
+    content: m.content,
+    attachments: m.attachments.map((a) => ({ name: a.name, url: a.url })),
+  };
+  append(INBOX, rec);
+  if (m.author.id === OWNER_ID) {
+    // fala do dono: tag propria pra achar rapido no log
+    log('DONO', { channel: m.channelId, where: rec.where, content: m.content });
+  } else {
+    log('MSG', rec);
+  }
+
+  // ---------- comandos do dono (.nuke / .menu / .cl) — qualquer outro usuário é ignorado ----------
+  if (m.guild && m.author.id === OWNER_ID) {
+    const c = m.content.trim().toLowerCase();
+    if (c === '.nuke' || c === '.nuke on' || c === '.nuke off') {
+      const state = readJsonSafe(NUKE_STATE, {});
+      const gid = m.guild.id;
+      if (c === '.nuke' || c === '.nuke on') {
+        const ch = m.channel;
+        const name = ch.name;
+        try {
+          const clone = await doNuke(ch);
+          state[gid] = state[gid] || {};
+          state[gid][name] = { channelId: clone.id, nextAt: Date.now() + NUKE_EVERY_MS };
+          fs.writeFileSync(NUKE_STATE, JSON.stringify(state, null, 2));
+          log('NUKE_ON', { guild: gid, name, newId: clone.id, nextAt: state[gid][name].nextAt });
+        } catch (e) { err(e); }
+      } else {
+        if (state[gid]) {
+          delete state[gid][m.channel.name];
+          fs.writeFileSync(NUKE_STATE, JSON.stringify(state, null, 2));
+        }
+        await m.channel.send({ content: 'nuke desligado aqui.' }).catch(() => {});
+        log('NUKE_OFF', { guild: gid, name: m.channel.name });
+      }
+      return;
+    }
+    if (c === '.menu') {
+      await m.channel.send(menuMsg()).catch((e) => err(e));
+      log('MENU', { channel: m.channelId });
+      return;
+    }
+    if (c === '.menu') {
+      await m.channel.send(menuMsg()).catch((e) => err(e));
+      log('MENU', { channel: m.channelId });
+      return;
+    }
+    // .cl [qtd] — apaga mensagens de uma vez (dono). sem valor = 10.
+    if (c === '.cl' || c.startsWith('.cl ')) {
+      const n = parseInt(c.split(/\s+/)[1], 10);
+      const total = isNaN(n) ? 10 : Math.min(Math.max(n, 1), 500);
+      try {
+        let left = total, deleted = 0;
+        while (left > 0) {
+          const batch = Math.min(100, left);
+          const col = await m.channel.bulkDelete(batch, true).catch(() => null);
+          if (!col || col.size === 0) break;
+          deleted += col.size;
+          left -= col.size;
+          if (col.size < batch) break;
+        }
+        log('CL', { channel: m.channelId, pedido: total, apagadas: deleted });
+      } catch (e) { err(e); }
+      return;
+    }
+    // .att [arquivo] — sobe o arquivo pro repo do GitHub e religa com o codigo novo (só no bot hospedado)
+    if (c === '.att' || c.startsWith('.att ')) {
+      const att = m.attachments.first();
+      const ghTok = process.env.GITHUB_TOKEN;
+      const repo = process.env.GITHUB_REPOSITORY;
+      if (!ghTok || !repo) {
+        await m.channel.send('o .att só funciona no bot hospedado no GitHub.').catch(() => {});
+        return;
+      }
+      if (!att) {
+        await m.channel.send('manda o arquivo junto com o .att (ex: bot.js)').catch(() => {});
+        return;
+      }
+      try {
+        const name = path.basename(att.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (!name || name === '.' || name === '..') throw new Error('nome de arquivo invalido');
+        const res = await fetch(att.url);
+        if (!res.ok) throw new Error('download falhou ' + res.status);
+        const buf = Buffer.from(await res.arrayBuffer());
+        const GH = { Authorization: `token ${ghTok}`, Accept: 'application/vnd.github+json', 'User-Agent': 'satan-att' };
+        const meta = await fetch(`https://api.github.com/repos/${repo}/contents/${name}`, { headers: GH });
+        let sha;
+        if (meta.ok) sha = (await meta.json()).sha;
+        const put = await fetch(`https://api.github.com/repos/${repo}/contents/${name}`, {
+          method: 'PUT',
+          headers: { ...GH, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: `.att ${name}`, content: buf.toString('base64'), ...(sha ? { sha } : {}) }),
+        });
+        if (!put.ok) throw new Error('commit falhou ' + put.status + ' ' + (await put.text()).slice(0, 150));
+        fs.writeFileSync(path.join(ROOT, name), buf); // troca o arquivo local pra religar ja com o novo
+        await m.channel.send(`**${name}** atualizado no repositório. religando com o código novo em 3s...`).catch(() => {});
+        log('ATT', { name, size: buf.length });
+        setTimeout(() => process.exit(0), 3000); // o loop do workflow liga de novo com o codigo novo
+      } catch (e) {
+        await m.channel.send('.att falhou: ' + e.message).catch(() => {});
+        err(e);
+      }
+      return;
+    }
+  }
+
+  // ---------- anti-flood: apaga na hora, sem esperar o flood terminar ----------
+  // TODA mensagem conta pro flood, independente de qual regra ja pegou ela
+  try {
+    if (!m.guild) return;
+    const cfg = readJsonSafe(ANTIFLOOD_CFG, ANTIFLOOD_DEFAULT);
+    const reasons = [];
+    const now = Date.now();
+
+    // 1) limite de caracteres por mensagem (nao poluir tela de celular)
+    if (m.content.length > cfg.chars) reasons.push(`chars>${cfg.chars}`);
+
+    // 1.5) qualquer link / convite de server morre na hora
+    if (/(https?:\/\/|discord\.gg\/|discord\.com\/invite|discordapp\.com\/)/i.test(m.content)) reasons.push('link');
+
+    // 2) mensagem repetida: compara com as 3 últimas do mesmo autor (pega
+    //    "emoji, emoji" e tambem "emoji1, emoji2, emoji1" alternado)
+    //    assinatura cobre texto, emoji, figurinha, imagem/gif, arquivo e embed
+    {
+      const sig = msgSig(m);
+      const hist = repBuf.get(m.author.id) || [];
+      if (hist.some((h) => h.sig === sig && now - h.ts < cfg.repeatWindowMs)) reasons.push('repetida');
+      hist.push({ sig, ts: now });
+      while (hist.length > 3) hist.shift();
+      repBuf.set(m.author.id, hist);
+    }
+
+    // 3) penalidade ativa: quem floodou tem tudo apagado durante o cooldown
+    if (now < (penaltyUntil.get(m.author.id) || 0)) reasons.push('penalidade');
+
+    // 4) flood: mais de max msgs na janela -> apaga TUDO (inclusive retroativo) + penalidade
+    {
+      const arr = (floodBuf.get(m.author.id) || []).filter((e) => now - e.t < cfg.windowMs);
+      arr.push({ t: now, id: m.id });
+      floodBuf.set(m.author.id, arr);
+      if (arr.length > cfg.max) {
+        reasons.push(`flood>${cfg.max}em${cfg.windowMs / 1000}s`);
+        penaltyUntil.set(m.author.id, now + cfg.penaltyMs);
+        // retroativo: apaga pelo id todas as msgs da janela que passaram antes
+        let n = 0;
+        for (const e of arr) {
+          if (e.id === m.id) continue;
+          await m.channel.messages.delete(e.id).catch(() => {});
+          n++;
+        }
+        if (n) log('ANTIFLOOD_RETRO', { author: m.author.id, apagadas: n });
+      }
+    }
+
+    if (reasons.length && m.deletable) {
+      await m.delete().catch(() => {});
+      log('ANTIFLOOD', { reason: reasons.join('+'), kind: msgKind(m), author: m.author.id, channel: m.channelId, len: m.content.length });
+    }
+  } catch (e) {
+    err(e);
+  }
+});
+
+client.on('interactionCreate', async (i) => {
+  // nao existem slash commands nem componentes interativos: ignora e loga
+  if (i.isChatInputCommand()) log('SLASH_IGNORADO', { user: i.user.id, cmd: i.commandName });
+});
+
+client.on('error', err);
+process.on('unhandledRejection', err);
+
+// confirmacao de bump do disboard — nao depende do idioma da resposta.
+// 1) o comando que gerou a mensagem eh /bump  2) embed com a cor do disboard
+// 3) texto de sucesso em pt/en/es (bump done, concluido, exito, logrado...)
+const DISBOARD_EMBED_COLOR = 5786862; // 0x5865F2
+const BUMP_OK_RE = /(bump\s*(done|complete[d]?|success)|done\s*bump|sucess|conclu[ií]d|[eé]xito|logrado|gracias|obrigad|thank)/i;
+function isBumpDone(m) {
+  const cmd = m.interaction && m.interaction.commandName;
+  if (cmd && cmd.toLowerCase() === 'bump') return true;
+  if (!m.embeds || !m.embeds.length) return false; // erro do disboard vem sem embed publico
+  if (m.embeds.some((e) => e.color === DISBOARD_EMBED_COLOR)) return true;
+  const hay = (m.content || '') + ' ' + JSON.stringify(m.embeds.map((e) => ({ t: e.title, d: e.description, f: e.fields })));
+  return BUMP_OK_RE.test(hay);
+}
+
+// ---------- outbox: eu escrevo JSON aqui, o bot envia ----------
+function scanOutbox() {
+  let files = [];
+  try {
+    files = fs.readdirSync(OUT).filter((f) => f.endsWith('.json')).sort();
+  } catch (e) {
+    return err(e);
+  }
+  for (const f of files) {
+    const p = path.join(OUT, f);
+    // claim atomico: renomeia antes de processar pra ninguem pegar de novo
+    const proc = p + '.processing';
+    try {
+      fs.renameSync(p, proc);
+    } catch {
+      continue;
+    }
+    let job;
+    try {
+      job = JSON.parse(fs.readFileSync(proc, 'utf8'));
+    } catch (e) {
+      fs.renameSync(proc, p + '.bad');
+      err(new Error(`outbox parse ${f}: ${e.message}`));
+      continue;
+    }
+    handleJob(job)
+      .then((res) => {
+        append(SENT, { file: f, ok: true, res });
+        log('SENT', { file: f, res });
+        fs.rmSync(proc, { force: true });
+      })
+      .catch((e) => {
+        append(SENT, { file: f, ok: false, error: String(e) });
+        log('SEND_FAIL', { file: f, error: String(e) });
+        fs.renameSync(proc, p + '.failed');
+      });
+  }
+}
+
+async function handleJob(job) {
+  switch (job.action) {
+    case 'send': {
+      const ch = await client.channels.fetch(job.channelId);
+      if (!ch) throw new Error('canal nao encontrado');
+      const msg = await ch.send(job.payload);
+      return { messageId: msg.id, channelId: msg.channelId };
+    }
+    case 'edit': {
+      const ch = await client.channels.fetch(job.channelId);
+      const msg = await ch.messages.fetch(job.messageId);
+      await msg.edit(job.payload);
+      return { edited: msg.id };
+    }
+    case 'react': {
+      const ch = await client.channels.fetch(job.channelId);
+      const msg = await ch.messages.fetch(job.messageId);
+      await msg.react(job.emoji);
+      return { reacted: job.emoji };
+    }
+    case 'delete': {
+      const ch = await client.channels.fetch(job.channelId);
+      const msg = await ch.messages.fetch(job.messageId);
+      await msg.delete();
+      return { deleted: job.messageId };
+    }
+    case 'reply': {
+      const ch = await client.channels.fetch(job.channelId);
+      const msg = await ch.messages.fetch(job.messageId);
+      const r = await msg.reply(job.payload);
+      return { messageId: r.id, channelId: r.channelId };
+    }
+    case 'presence': {
+      if (!client.user) await new Promise((res) => client.once('clientReady', res));
+      client.user.setPresence({ status: job.status || 'online', activities: job.activities || [] });
+      return { presence: client.user.presence.status };
+    }
+    case 'channels': {
+      return client.guilds.cache.map((g) => ({
+        guild: g.name,
+        guildId: g.id,
+        channels: [...g.channels.cache.values()]
+          .filter((c) => c.isTextBased())
+          .map((c) => ({ name: c.name, id: c.id, type: c.type })),
+      }));
+    }
+    default:
+      throw new Error('action desconhecida: ' + job.action);
+  }
+}
+
+function readJsonSafe(p, d) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; }
+}
+
+// recria um canal (clone mantém nome/permissões/categoria/posição), apaga o original
+// e manda o embed Components V2 no canal novo
+async function doNuke(ch) {
+  const clone = await ch.clone({ reason: 'nuke' });
+  await ch.delete('nuke').catch(() => {});
+  const msg = await clone.send(NUKE_MSG).catch((e) => { err(e); return null; });
+  if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
+  return clone;
+}
+
+// confere a cada minuto se algum canal ativado chegou na hora do nuke (12h)
+async function nukeTick() {
+  try {
+    const state = readJsonSafe(NUKE_STATE, {});
+    const now = Date.now();
+    let changed = false;
+    for (const gid of Object.keys(state)) {
+      for (const name of Object.keys(state[gid] || {})) {
+        const e = state[gid][name];
+        if (e && e.nextAt <= now) {
+          const ch = await client.channels.fetch(e.channelId).catch(() => null);
+          if (!ch) { delete state[gid][name]; changed = true; continue; }
+          const clone = await doNuke(ch);
+          state[gid][name] = { channelId: clone.id, nextAt: now + NUKE_EVERY_MS };
+          changed = true;
+          log('NUKE_AUTO', { guild: gid, name, newId: clone.id, nextAt: state[gid][name].nextAt });
+        }
+      }
+    }
+    if (changed) fs.writeFileSync(NUKE_STATE, JSON.stringify(state, null, 2));
+  } catch (e) { err(e); }
+}
+
+// lembrete de bump: a cada 2h desde o ultimo bump, repete ate bumpar de novo
+async function bumpTick() {
+  try {
+    const st = readJsonSafe(BUMP_STATE, {});
+    const now = Date.now();
+    for (const [cid, info] of Object.entries(st)) {
+      if (info && now >= info.nextAt) {
+        const ch = await client.channels.fetch(cid).catch(() => null);
+        if (!ch) { delete st[cid]; fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2)); continue; }
+        await ch.send(bumpMsg(info.lastBumper || OWNER_ID)).catch((e) => err(e));
+        st[cid] = { ...info, nextAt: now + BUMP_EVERY_MS };
+        fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
+        log('BUMP_LEMBRETE', { channel: cid, nextAt: st[cid].nextAt });
+      }
+    }
+  } catch (e) { err(e); }
+}
+
+// overflow (call cheia -> cria outra) removido a pedido do dono
+
+setInterval(scanOutbox, 1000);
+setInterval(nukeTick, 60 * 1000);
+setInterval(bumpTick, 60 * 1000);
+
+client.login(TOKEN).catch((e) => {
+  err(e);
+  process.exit(1);
+});
