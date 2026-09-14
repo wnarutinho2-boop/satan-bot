@@ -798,8 +798,8 @@ function fmtResto(nextAt) {
 function barraResto(nextAt) {
   const total = 12 * 3600000;
   const frac = Math.max(0, Math.min(1, (nextAt - Date.now()) / total));
-  const cheio = Math.round(frac * 20);
-  return '[' + '█'.repeat(cheio) + '░'.repeat(20 - cheio) + ']';
+  const cheio = Math.round(frac * 10);
+  return '[' + '█'.repeat(cheio) + '░'.repeat(10 - cheio) + ']';
 }
 function horaBrasilia(nextAt) {
   return new Date(nextAt - 3 * 3600000).toISOString().slice(11, 16);
@@ -811,8 +811,9 @@ function nukePainelMsg(nextAt) {
       type: 17, accent_color: 8912896,
       components: [
         { type: 10, content: '# NUKE ARMADO' },
-        { type: 10, content: barraResto(nextAt) + ' **' + fmtResto(nextAt) + '**' },
-        { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
+        { type: 10, content: '**' + fmtResto(nextAt) + '**' },
+        { type: 10, content: barraResto(nextAt) },
+        { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (brasilia)' },
         { type: 14, spacing: 1 },
         { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o relogio anda a cada 5 segundos.' },
       ],
