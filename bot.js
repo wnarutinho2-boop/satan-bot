@@ -58,7 +58,7 @@ function msgKind(m) {
 
 // nuke (owner): recria o canal a cada 12h
 const NUKE_STATE = path.join(ROOT, 'nuke_state.json');
-const NUKE_EVERY_MS = 12 * 60 * 60 * 1000;
+const NUKE_EVERY_MS = 6 * 60 * 60 * 1000;
 
 // bump reminder (estilo fibo): 2h apos o bump do disboard, repete a cada 2h
 const DISBOARD_ID = '302050872383242240';
@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 12h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 6h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -221,7 +221,19 @@ client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
   varrerLinks().catch(err); // apaga link que entrou durante o reinicio
-  garantirPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(err); // recria o painel do nuke se sumiu
+  (async () => {
+    const stN = readJsonSafe(NUKE_STATE, {});
+    if (stN && stN.on === true && stN.nextAt) {
+      const maxAt = Date.now() + NUKE_EVERY_MS;
+      if (stN.nextAt > maxAt) { // ciclo mudou: ajusta o nuke que ja estava armado
+        stN.nextAt = maxAt;
+        fs.writeFileSync(NUKE_STATE, JSON.stringify(stN, null, 2));
+        ghStateSyncTick();
+      }
+      await garantirPainelNuke(stN);
+      await editarPainelNuke(stN);
+    }
+  })().catch(err);
   // slash commands removidos a pedido do dono (nao registrar mais)
   // varre arquivos de saida que ja existam
   scanOutbox();
@@ -796,8 +808,7 @@ function fmtResto(nextAt) {
   return h + 'h ' + String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
 }
 function barraResto(nextAt) {
-  const total = 12 * 3600000;
-  const frac = Math.max(0, Math.min(1, (nextAt - Date.now()) / total));
+  const frac = Math.max(0, Math.min(1, (nextAt - Date.now()) / NUKE_EVERY_MS));
   const cheio = Math.round(frac * 10);
   return '[' + '█'.repeat(cheio) + '░'.repeat(10 - cheio) + ']';
 }
@@ -815,7 +826,7 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: barraResto(nextAt) },
         { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o relogio anda a cada 5 segundos.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 6h. o relogio anda a cada 5 segundos.' },
       ],
     }],
   };
