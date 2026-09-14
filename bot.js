@@ -874,6 +874,12 @@ async function nukeTick() {
   try {
     const st = readJsonSafe(NUKE_STATE, {});
     if (!st || st.on !== true || !st.nextAt) return;
+    const maxAt = Date.now() + NUKE_EVERY_MS;
+    if (st.nextAt > maxAt) { // ciclo menor que o armado (ex.: mudou de 12h pra 6h)
+      st.nextAt = maxAt;
+      fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
+      ghStateSyncTick();
+    }
     await garantirPainelNuke(st);
     if (Date.now() >= st.nextAt) {
       const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
