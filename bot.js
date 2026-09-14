@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 12h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 12h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -354,20 +354,13 @@ client.on('messageCreate', async (m) => {
         const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id };
         await m.delete().catch(() => {});
         const stPrev = readJsonSafe(NUKE_STATE, {});
-        const alvo = canalDoPainel(m.guild, m.channel.id);
         if (stPrev && stPrev.painel && stPrev.painel.channelId) {
-          if (stPrev.painel.channelId === alvo.id) {
-            st2.painel = stPrev.painel;
-            await editarPainelNuke(st2);
-          } else {
-            const och = await client.channels.fetch(stPrev.painel.channelId).catch(() => null);
-            if (och) await och.messages.fetch(stPrev.painel.messageId).then((mm) => mm.delete().catch(() => {})).catch(() => {});
-          }
+          const och = await client.channels.fetch(stPrev.painel.channelId).catch(() => null);
+          if (och) await och.messages.fetch(stPrev.painel.messageId).then((mm) => mm.delete().catch(() => {})).catch(() => {});
         }
-        if (!st2.painel) {
-          const pm = await alvo.send(nukePainelMsg(st2.nextAt)).catch(() => null);
-          if (pm) st2.painel = { channelId: alvo.id, messageId: pm.id };
-        }
+        const alvo = canalDoPainel(m.guild, m.channel.id);
+        const pm = await alvo.send(nukePainelMsg(st2.nextAt)).catch(() => null);
+        if (pm) st2.painel = { channelId: alvo.id, messageId: pm.id };
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
         ghStateSyncTick();
         log('NUKE_ON_GLOBAL', { guild: m.guild.id, nextAt: st2.nextAt, cmdChannel: m.channel.id, painel: painelId });
@@ -401,6 +394,7 @@ client.on('messageCreate', async (m) => {
       const n = parseInt(c.split(/\s+/)[1], 10);
       const total = isNaN(n) ? 10 : Math.min(Math.max(n, 1), 500);
       try {
+        await m.delete().catch(() => {}); // o comando some e nao entra na conta
         let left = total, deleted = 0;
         while (left > 0) {
           const batch = Math.min(100, left);
