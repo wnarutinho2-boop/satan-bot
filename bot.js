@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — limpa o ・confessionario e o chat das calls na hora e a cada 12h (inferno e bump ficam em paz) / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 12h limpa o chat das calls, o ・confessionario e o canal do comando (na hora do comando nao limpa nada) / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -350,11 +350,12 @@ client.on('messageCreate', async (m) => {
     const c = m.content.trim().toLowerCase();
     if (c === '.nuke' || c === '.nuke on' || c === '.nuke off') {
       if (c === '.nuke' || c === '.nuke on') {
-        const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS };
+        const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id };
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
-        const r = await limparServer(m.guild).catch((e) => { err(e); return { msgs: 0 }; });
-        await m.channel.send({ content: 'nuke ligado: limpei ' + r.msgs + ' mensagens (・confessionario + chat das calls; inferno e bump nao mexo). repete a cada 12h. .nuke on de novo reinicia a contagem.' }).catch(() => {});
-        log('NUKE_ON_GLOBAL', { guild: m.guild.id, msgs: r.msgs, nextAt: st2.nextAt });
+        await m.delete().catch(() => {});
+        const tmp = await m.channel.send({ content: 'nuke armado: a cada 12h vou limpar o chat de todos os canais de voz, o ・confessionario e este canal. nada é limpo agora.' }).catch(() => null);
+        if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 8000);
+        log('NUKE_ON_GLOBAL', { guild: m.guild.id, nextAt: st2.nextAt, cmdChannel: m.channel.id });
       } else {
         fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
         await m.channel.send({ content: 'nuke desligado.' }).catch(() => {});
@@ -769,14 +770,14 @@ async function doNuke(ch) {
   return clone;
 }
 
-// limpa so o ・confessionario e o chat das calls (inferno e bump ficam em paz)
-async function limparServer(guild) {
+// limpa: chat das calls + ・confessionario + canal onde o dono deu .nuke on
+async function limparServer(guild, extraId) {
   let msgs = 0;
   for (const ch of guild.channels.cache.values()) {
     try {
-      // 2 = canal de voz (chat da call); texto so se for o confessionario
+      // 2 = canal de voz (chat da call); texto so se for o confessionario ou o canal do comando
       const ehConf = (ch.type === 0 || ch.type === 5) && /confessionar/i.test(ch.name || '');
-      if (ch.type === 2 || ehConf) {
+      if (ch.type === 2 || ehConf || (extraId && ch.id === extraId)) {
         while (true) {
           const del = await ch.bulkDelete(100, true).catch(() => null);
           if (!del || del.size === 0) break;
@@ -798,7 +799,7 @@ async function nukeTick() {
     if (Date.now() >= st.nextAt) {
       const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
       if (!guild) return;
-      const r = await limparServer(guild);
+      const r = await limparServer(guild, st.cmdChannel || null);
       st.nextAt = Date.now() + NUKE_EVERY_MS;
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
       log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, nextAt: st.nextAt });
