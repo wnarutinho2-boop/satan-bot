@@ -483,7 +483,7 @@ process.on('unhandledRejection', err);
 // 1) o comando que gerou a mensagem eh /bump  2) embed com a cor do disboard
 // 3) texto de sucesso em pt/en/es (bump done, concluido, exito, logrado...)
 const DISBOARD_EMBED_COLOR = 5786862; // 0x5865F2
-const BUMP_OK_RE = /(bump\s*(done|feito|complete[d]?|success)|done\s*bump|sucess|conclu[ií]d|[eé]xito|logrado|gracias|obrigad|thank|confira no disboard|disboard\.org\/server)/i;
+const BUMP_OK_RE = /(bump\w*\s*(done|feito|complete[d]?|success)|done\s*bump|sucess|conclu[ií]d|[eé]xito|logrado|gracias|obrigad|thank|confira no disboard|disboard\.org\/server)/i;
 function isBumpDone(m) {
   const cmd = m.interaction && m.interaction.commandName;
   if (cmd && cmd.toLowerCase() === 'bump') return true;
