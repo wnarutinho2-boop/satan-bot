@@ -19,10 +19,10 @@
   ],
   "on": true,
   "nextTalkAt": 1789426340242.603,
-  "lastReplyAt": 1789424797507,
+  "lastReplyAt": 1789424854479,
   "debug": {
-    "ts": 1789424982841,
-    "etapa": "webhook_ok",
-    "det": "204"
+    "ts": 1789425034675,
+    "etapa": "llm_ok",
+    "det": "você tá falando daquela coisa, né?"
   }
 }
