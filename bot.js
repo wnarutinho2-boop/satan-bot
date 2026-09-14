@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — limpa TODOS os chats do server (texto + esvazia calls) na hora e a cada 12h / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — limpa TODOS os chats do server (canais de texto + chat das calls) na hora e a cada 12h / desliga\n**.cl [qtd]** — apaga mensagens de uma vez (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -352,9 +352,9 @@ client.on('messageCreate', async (m) => {
       if (c === '.nuke' || c === '.nuke on') {
         const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS };
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
-        const r = await limparServer(m.guild).catch((e) => { err(e); return { msgs: 0, voz: 0 }; });
-        await m.channel.send({ content: 'nuke ligado no server inteiro: limpei ' + r.msgs + ' mensagens e esvaziei ' + r.voz + ' das calls. repete em todos os chats a cada 12h. .nuke on de novo reinicia a contagem.' }).catch(() => {});
-        log('NUKE_ON_GLOBAL', { guild: m.guild.id, msgs: r.msgs, voz: r.voz, nextAt: st2.nextAt });
+        const r = await limparServer(m.guild).catch((e) => { err(e); return { msgs: 0 }; });
+        await m.channel.send({ content: 'nuke ligado no server inteiro: limpei ' + r.msgs + ' mensagens (todos os chats, incluindo o chat das calls). repete a cada 12h. .nuke on de novo reinicia a contagem.' }).catch(() => {});
+        log('NUKE_ON_GLOBAL', { guild: m.guild.id, msgs: r.msgs, nextAt: st2.nextAt });
       } else {
         fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
         await m.channel.send({ content: 'nuke desligado.' }).catch(() => {});
@@ -769,12 +769,13 @@ async function doNuke(ch) {
   return clone;
 }
 
-// limpa o server inteiro: apaga as mensagens de todos os canais de texto e esvazia as calls
+// limpa o server inteiro: apaga as mensagens de todos os canais de texto e do chat das calls
 async function limparServer(guild) {
-  let msgs = 0, voz = 0;
+  let msgs = 0;
   for (const ch of guild.channels.cache.values()) {
     try {
-      if (ch.type === 0 || ch.type === 5) {
+      // 0 = canal de texto, 5 = anuncios, 2 = canal de voz (chat da call)
+      if (ch.type === 0 || ch.type === 5 || ch.type === 2) {
         while (true) {
           const del = await ch.bulkDelete(100, true).catch(() => null);
           if (!del || del.size === 0) break;
@@ -782,17 +783,10 @@ async function limparServer(guild) {
           if (del.size < 100) break;
           await new Promise((r) => setTimeout(r, 1500));
         }
-      } else if (ch.type === 2) {
-        for (const mem of ch.members.values()) {
-          if (!mem.user.bot && mem.id !== OWNER_ID) {
-            await mem.voice.disconnect('nuke').catch(() => {});
-            voz++;
-          }
-        }
       }
     } catch (e) { err(e); }
   }
-  return { msgs, voz };
+  return { msgs };
 }
 
 // confere a cada minuto se chegou a hora do nuke global (12h)
@@ -806,7 +800,7 @@ async function nukeTick() {
       const r = await limparServer(guild);
       st.nextAt = Date.now() + NUKE_EVERY_MS;
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
-      log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, voz: r.voz, nextAt: st.nextAt });
+      log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, nextAt: st.nextAt });
     }
   } catch (e) { err(e); }
 }
