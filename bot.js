@@ -795,17 +795,26 @@ function fmtResto(nextAt) {
   const s = Math.floor((ms % 60000) / 1000);
   return h + 'h ' + String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
 }
+function barraResto(nextAt) {
+  const total = 12 * 3600000;
+  const frac = Math.max(0, Math.min(1, (nextAt - Date.now()) / total));
+  const cheio = Math.round(frac * 20);
+  return '[' + '█'.repeat(cheio) + '░'.repeat(20 - cheio) + ']';
+}
+function horaBrasilia(nextAt) {
+  return new Date(nextAt - 3 * 3600000).toISOString().slice(11, 16);
+}
 function nukePainelMsg(nextAt) {
-  const sec = Math.floor(nextAt / 1000);
   return {
     flags: 1 << 15,
     components: [{
       type: 17, accent_color: 8912896,
       components: [
         { type: 10, content: '# NUKE ARMADO' },
-        { type: 10, content: 'tempo restante: <t:' + sec + ':R>\npróxima limpeza: <t:' + sec + ':T>' },
+        { type: 10, content: barraResto(nextAt) + ' **' + fmtResto(nextAt) + '**' },
+        { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. o relogio anda sozinho na sua tela — o bot nao precisa editar nada.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 12h. a barra desce sozinha a cada 30 segundos.' },
       ],
     }],
   };
@@ -921,6 +930,7 @@ async function bumpTick() {
 
 setInterval(scanOutbox, 1000);
 setInterval(nukeTick, 60 * 1000);
+setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 30 * 1000); // relogio vivo do painel
 setInterval(bumpTick, 60 * 1000);
 
 client.login(TOKEN).catch((e) => {
