@@ -340,6 +340,7 @@ client.on('messageCreate', async (m) => {
     return;
   }
   if (m.author.bot) return;
+  responderFalso(m).catch(() => {}); // falso responde na hora no canal ainda
   const rec = {
     ts: new Date().toISOString(),
     id: m.id,
@@ -1038,11 +1039,40 @@ async function criarFalsos(ch) {
     } catch (e) { err(e); }
   }
   st.on = true;
-  st.nextTalkAt = Date.now() + 3 * 60000;
+  st.nextTalkAt = Date.now() + 2 * 60000;
   fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
   ghStateSyncTick();
   log('FALSOS_CRIADOS', { nomes: st.personas.map((x) => x.nome) });
   return st;
+}
+async function responderFalso(m) {
+  try {
+    if (!m.guild || (m.channel.name || '') !== FAKE_CHANNEL_NAME) return;
+    if (m.webhookId) return;
+    const c = (m.content || '').trim();
+    if (!c || c.startsWith('.')) return;
+    const st = readJsonSafe(FAKE_STATE, {});
+    if (st.on === false || !st.personas || !st.personas.length) return;
+    const now = Date.now();
+    if (now - (st.lastReplyAt || 0) < 20000) return; // cooldown curto anti-spam
+    st.lastReplyAt = now;
+    fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
+    const pp = st.personas[Math.floor(Math.random() * st.personas.length)];
+    if (!pp.webhookToken) return;
+    const msgs = await m.channel.messages.fetch({ limit: 12 }).catch(() => null);
+    const ctx = msgs ? [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      .map((x) => x.author.username + ': ' + (x.content || '')).filter((t) => t.length > 4).join('\n') : '';
+    const fala = await llm('Voce e "' + pp.nome + '", membro humano brasileiro de um discord de zoeira. Personalidade: ' + pp.personalidade + '. Jeito: ' + pp.jeito + '.\nConversa recente:\n' + ctx + '\n' + m.author.username + ' acabou de escrever: "' + c.slice(0, 200) + '"\nResponda DIRETO a ele agora. UMA frase curta, informal, pt-BR, gíria, minusculas. NUNCA diga que e bot ou IA. SO a mensagem, sem aspas.', 50);
+    if (!fala) return;
+    const clean = fala.split('\n')[0].trim().slice(0, 190);
+    if (!clean) return;
+    setTimeout(() => {
+      fetch('https://discord.com/api/v10/webhooks/' + pp.webhookId + '/' + pp.webhookToken, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: clean, username: pp.nome, avatar_url: pp.avatar }),
+      }).then(() => log('FALSO_RESPONDEU', { nome: pp.nome, fala: clean })).catch((e) => err(e));
+    }, (2 + Math.random() * 4) * 1000);
+  } catch (e) { err(e); }
 }
 async function falsosTick() {
   try {
@@ -1054,7 +1084,7 @@ async function falsosTick() {
     if (!ch) return;
     if (!st.personas) { await criarFalsos(ch); return; }
     if (Date.now() < (st.nextTalkAt || 0)) return;
-    st.nextTalkAt = Date.now() + (25 + Math.random() * 45) * 60000;
+    st.nextTalkAt = Date.now() + (10 + Math.random() * 15) * 60000;
     fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
     const msgs = await ch.messages.fetch({ limit: 15 }).catch(() => null);
     const ctx = msgs ? [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)
