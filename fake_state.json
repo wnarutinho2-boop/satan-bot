@@ -19,5 +19,10 @@
   ],
   "on": true,
   "nextTalkAt": 1789426340242.603,
-  "lastReplyAt": 1789423801636
+  "lastReplyAt": 1789424244298,
+  "debug": {
+    "ts": 1789424244617,
+    "etapa": "chamou_llm",
+    "det": "Pedro"
+  }
 }
