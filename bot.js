@@ -170,7 +170,8 @@ function bumpPanel(st) {
         { type: 1, components: [{ type: 5, custom_id: 'bump_sel_user', min_values: 1, max_values: 25, placeholder: '+ escolher pessoa(s)' }] },
         { type: 1, components: [{ type: 6, custom_id: 'bump_sel_role', min_values: 1, max_values: 25, placeholder: '+ escolher cargo(s)' }] },
         { type: 1, components: [
-          { type: 2, style: 3, label: 'Me inclui', custom_id: 'bump_self' },
+          { type: 2, style: 3, label: 'Salvar', custom_id: 'bump_sel_done' },
+          { type: 2, style: 2, label: 'Me inclui', custom_id: 'bump_self' },
           { type: 2, style: 4, label: 'Zerar (so eu)', custom_id: 'bump_reset' },
         ]},
       ],
@@ -632,6 +633,12 @@ client.on('interactionCreate', async (i) => {
     fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
     await i.message.edit(bumpPanel(st)).catch(() => {});
     log('BUMP_PAINEL', { custom: i.customId, ids, target: st.target });
+    return;
+  }
+  if (i.isButton() && i.customId === 'bump_sel_done') {
+    if (i.user.id !== OWNER_ID) { await i.reply({ content: 'só o dono usa isso.', flags: 64 }); return; }
+    await i.deferUpdate().catch(() => {});
+    await i.message.delete().catch(() => {});
     return;
   }
   if (i.isButton() && ['bump_self', 'bump_reset'].includes(i.customId)) {
