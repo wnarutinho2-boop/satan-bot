@@ -816,9 +816,9 @@ async function bumpTick() {
         const ch = await client.channels.fetch(cid).catch(() => null);
         if (!ch) { delete st[cid]; fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2)); continue; }
         await ch.send(bumpMsg(st.target)).catch((e) => err(e));
-        st[cid] = { ...info, nextAt: now + BUMP_EVERY_MS };
+        delete st[cid]; // lembrete uma vez por bump; so avisa de novo com bump novo
         fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-        log('BUMP_LEMBRETE', { channel: cid, nextAt: st[cid].nextAt });
+        log('BUMP_LEMBRETE', { channel: cid });
       }
     }
   } catch (e) { err(e); }
