@@ -107,7 +107,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 6h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo\n**.falso / .falso on / .falso off** — status / liga / desliga os membros falsos (so falam no canal ainda)' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 6h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -264,7 +264,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'fake_state.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -340,7 +340,6 @@ client.on('messageCreate', async (m) => {
     return;
   }
   if (m.author.bot) return;
-  responderFalso(m).catch(() => {}); // falso responde na hora no canal ainda
   const rec = {
     ts: new Date().toISOString(),
     id: m.id,
@@ -389,26 +388,6 @@ client.on('messageCreate', async (m) => {
         await choff.send(nukeOffMsg()).catch(() => {});
         ghStateSyncTick();
         log('NUKE_OFF_GLOBAL', { guild: m.guild.id });
-      }
-      return;
-    }
-    if (c === '.falso' || c === '.falso on' || c === '.falso off') {
-      const st = readJsonSafe(FAKE_STATE, {});
-      const chresp = canalDoPainel(m.guild, m.channel.id);
-      if (c === '.falso off') {
-        st.on = false;
-        fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
-        ghStateSyncTick();
-        await chresp.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [{ type: 10, content: 'falsos desligados.' }] }] }).catch(() => {});
-      } else if (c === '.falso on') {
-        st.on = true;
-        st.nextTalkAt = Date.now() + 60000;
-        fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
-        ghStateSyncTick();
-        await chresp.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [{ type: 10, content: 'falsos ligados — vao falar só no canal ainda.' }] }] }).catch(() => {});
-      } else {
-        const nomes = (st.personas || []).map((x) => x.nome).join(', ') || 'nenhum ainda';
-        await chresp.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [{ type: 10, content: 'falsos: ' + (st.on === false ? 'desligados' : 'ligados') + ' | elenco: ' + nomes + ' | canal: ainda' }] }] }).catch(() => {});
       }
       return;
     }
@@ -968,161 +947,12 @@ async function bumpTick() {
   } catch (e) { err(e); }
 }
 
-// ---------- FALSOS: webhooks que fingem ser gente, cerebro = LLM local (zero chave) ----------
-const FAKE_STATE = path.join(ROOT, 'fake_state.json');
-const FAKE_CHANNEL_NAME = 'ainda';
-const LLM_DIR = path.join(ROOT, 'llm');
-const LLM_CLI = path.join(LLM_DIR, 'llama-cli');
-const LLM_MODEL = path.join(LLM_DIR, 'model.gguf');
-const { spawn } = require('child_process');
-function runProc(cmd, args, timeoutMs) {
-  return new Promise((res) => {
-    let out = '', done = false;
-    const p = spawn(cmd, args, { env: { ...process.env, LD_LIBRARY_PATH: LLM_DIR } });
-    const to = setTimeout(() => { if (!done) { done = true; p.kill('SIGKILL'); res({ code: -1, out }); } }, timeoutMs);
-    p.stdout.on('data', (d) => { out += d; });
-    p.stderr.on('data', () => {});
-    p.on('close', (code) => { if (!done) { done = true; clearTimeout(to); res({ code, out }); } });
-  });
-}
-let ensureP = null;
-function ensureLlama() {
-  if (!ensureP) ensureP = (async () => {
-    try {
-      fs.mkdirSync(LLM_DIR, { recursive: true });
-      if (!fs.existsSync(LLM_CLI)) {
-        const zip = path.join(LLM_DIR, 'llama.zip');
-        await runProc('curl', ['-sSL', '-m', '300', '-o', zip, 'https://github.com/ggml-org/llama.cpp/releases/download/b5259/llama-b5259-bin-ubuntu-x64.zip'], 320000);
-        await runProc('unzip', ['-o', '-q', zip, '-d', LLM_DIR], 120000);
-        const bb = path.join(LLM_DIR, 'build', 'bin');
-        if (fs.existsSync(bb)) for (const f of fs.readdirSync(bb)) try { fs.renameSync(path.join(bb, f), path.join(LLM_DIR, f)); } catch {}
-        try { fs.chmodSync(LLM_CLI, 0o755); } catch {}
-      }
-      if (!fs.existsSync(LLM_MODEL) || fs.statSync(LLM_MODEL).size < 1000000000) {
-        await runProc('curl', ['-sSL', '-m', '1500', '-o', LLM_MODEL, 'https://huggingface.co/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf'], 1600000);
-      }
-      const ok = fs.existsSync(LLM_CLI) && fs.existsSync(LLM_MODEL) && fs.statSync(LLM_MODEL).size > 1000000000;
-      log('LLM_PRONTO', { ok });
-      return ok;
-    } catch (e) { err(e); return false; }
-  })();
-  return ensureP;
-}
-async function llm(prompt, maxTok) {
-  if (!(await ensureLlama())) return null;
-  const r = await runProc(LLM_CLI, ['-m', LLM_MODEL, '-c', '1024', '-t', '2', '-n', String(maxTok || 80), '--temp', '0.9', '--no-display-prompt', '-p', prompt], 180000);
-  const t = (r.out || '').trim();
-  return t || null;
-}
-let criandoFalsos = false;
-async function criarFalsos(ch) {
-  if (criandoFalsos) return readJsonSafe(FAKE_STATE, {});
-  criandoFalsos = true;
-  try {
-  const st = readJsonSafe(FAKE_STATE, {});
-  if (st.personas && st.personas.length) return st;
-  const txt = await llm('Crie um JSON valido (array com 2 objetos) com personas de membros brasileiros reais de um discord de zoeira. campos: "nome" (so primeiro nome, comum no BR), "personalidade", "jeito". Responda SO o JSON.', 300);
-  let arr = null;
-  try { arr = JSON.parse(txt); } catch {}
-  if (!arr && txt) { const m = txt.match(/\[[\s\S]*\]/); if (m) { try { arr = JSON.parse(m[0]); } catch {} } }
-  if (!Array.isArray(arr) || !arr.length) arr = [
-    { nome: 'ruan', personalidade: 'zoa tudo, vive rindo, entra na conversa dos outros', jeito: 'curto, kkk, minusculas, sem pontuacao' },
-    { nome: 'melly', personalidade: 'debochada, provocadora, adora um caos', jeito: 'kkkk, giria, termina com pergunta' },
-  ];
-  st.personas = arr.slice(0, 2).map((pp, i) => ({
-    nome: String(pp.nome || 'falso' + i).slice(0, 24),
-    personalidade: String(pp.personalidade || 'zoa tudo'),
-    jeito: String(pp.jeito || 'curto e informal'),
-    avatar: 'https://raw.githubusercontent.com/wnarutinho2-boop/satan-bot/main/assets/falso' + (i + 1) + '.png',
-    webhookId: null, webhookToken: null,
-  }));
-  for (const pp of st.personas) {
-    try {
-      const wh = await ch.createWebhook({ name: pp.nome, reason: 'falso' });
-      pp.webhookId = wh.id; pp.webhookToken = wh.token;
-    } catch (e) { err(e); }
-  }
-  st.on = true;
-  st.nextTalkAt = Date.now() + 2 * 60000;
-  fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
-  ghStateSyncTick();
-  log('FALSOS_CRIADOS', { nomes: st.personas.map((x) => x.nome) });
-  return st;
-  } finally { criandoFalsos = false; }
-}
-async function responderFalso(m) {
-  try {
-    if (!m.guild || (m.channel.name || '') !== FAKE_CHANNEL_NAME) return;
-    if (m.webhookId) return;
-    const c = (m.content || '').trim();
-    if (!c || c.startsWith('.')) return;
-    const st = readJsonSafe(FAKE_STATE, {});
-    if (st.on === false || !st.personas || !st.personas.length) return;
-    const now = Date.now();
-    if (now - (st.lastReplyAt || 0) < 20000) return; // cooldown curto anti-spam
-    st.lastReplyAt = now;
-    fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
-    const pp = st.personas[Math.floor(Math.random() * st.personas.length)];
-    if (!pp.webhookToken) return;
-    const msgs = await m.channel.messages.fetch({ limit: 12 }).catch(() => null);
-    const ctx = msgs ? [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-      .map((x) => x.author.username + ': ' + (x.content || '')).filter((t) => t.length > 4).join('\n') : '';
-    const st2 = st;
-    const trace = (etapa, det) => { st2.debug = { ts: Date.now(), etapa, det: String(det == null ? '' : det).slice(0, 160) }; fs.writeFileSync(FAKE_STATE, JSON.stringify(st2, null, 2)); ghStateSyncTick(); };
-    trace('chamou_llm', pp.nome);
-    const fala = await llm('Voce e "' + pp.nome + '", membro humano brasileiro de um discord de zoeira. Personalidade: ' + pp.personalidade + '. Jeito: ' + pp.jeito + '.\nConversa recente:\n' + ctx + '\n' + m.author.username + ' acabou de escrever: "' + c.slice(0, 200) + '"\nResponda DIRETO a ele agora. UMA frase curta, informal, pt-BR, gíria, minusculas. NUNCA diga que e bot ou IA. SO a mensagem, sem aspas.', 50);
-    if (!fala) { trace('llm_null', ''); return; }
-    const clean = fala.split('\n')[0].trim().slice(0, 190);
-    if (!clean) { trace('fala_vazia', ''); return; }
-    trace('llm_ok', clean);
-    setTimeout(() => {
-      fetch('https://discord.com/api/v10/webhooks/' + pp.webhookId + '/' + pp.webhookToken, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: clean, username: pp.nome, avatar_url: pp.avatar }),
-      }).then((r) => { log('FALSO_RESPONDEU', { nome: pp.nome, status: r.status }); trace('webhook_ok', r.status); }).catch((e) => { err(e); trace('webhook_erro', e.message); });
-    }, (2 + Math.random() * 4) * 1000);
-  } catch (e) {
-    err(e);
-    try { const stx = readJsonSafe(FAKE_STATE, {}); stx.debug = { ts: Date.now(), etapa: 'erro_geral', det: (e && e.message || '').slice(0, 160) }; fs.writeFileSync(FAKE_STATE, JSON.stringify(stx, null, 2)); ghStateSyncTick(); } catch {}
-  }
-}
-async function falsosTick() {
-  try {
-    const st = readJsonSafe(FAKE_STATE, {});
-    if (st.on === false) return;
-    const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
-    if (!guild) return;
-    const ch = guild.channels.cache.find((c) => c.type === 0 && (c.name || '') === FAKE_CHANNEL_NAME);
-    if (!ch) return;
-    if (!st.personas) { await criarFalsos(ch); return; }
-    if (Date.now() < (st.nextTalkAt || 0)) return;
-    st.nextTalkAt = Date.now() + (10 + Math.random() * 15) * 60000;
-    fs.writeFileSync(FAKE_STATE, JSON.stringify(st, null, 2));
-    const msgs = await ch.messages.fetch({ limit: 15 }).catch(() => null);
-    const ctx = msgs ? [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-      .map((m) => m.author.username + ': ' + (m.content || '')).filter((t) => t.length > 4).join('\n') : '';
-    const pp = st.personas[Math.floor(Math.random() * st.personas.length)];
-    if (!pp.webhookToken) return;
-    const fala = await llm('Voce e "' + pp.nome + '", membro humano brasileiro de um discord de zoeira. Personalidade: ' + pp.personalidade + '. Jeito de escrever: ' + pp.jeito + '.\nUltimas mensagens do canal:\n' + ctx + '\nEscreva a SUA proxima mensagem nesse canal. UMA frase curta, informal, pt-BR, gíria, minusculas. NUNCA diga que e bot ou IA. Responda SO a mensagem, sem aspas e sem prefixo.', 60);
-    if (!fala) return;
-    const clean = fala.split('\n')[0].trim().slice(0, 190);
-    if (!clean) return;
-    setTimeout(() => {
-      fetch('https://discord.com/api/v10/webhooks/' + pp.webhookId + '/' + pp.webhookToken, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: clean, username: pp.nome, avatar_url: pp.avatar }),
-      }).then(() => log('FALSO_FALOU', { nome: pp.nome, fala: clean })).catch((e) => err(e));
-    }, (20 + Math.random() * 70) * 1000);
-  } catch (e) { err(e); }
-}
-
 // overflow (call cheia -> cria outra) removido a pedido do dono
 
 setInterval(scanOutbox, 1000);
 setInterval(nukeTick, 60 * 1000);
 setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 5 * 1000); // relogio vivo do painel (5s)
 setInterval(bumpTick, 60 * 1000);
-setInterval(falsosTick, 60 * 1000);
 
 client.login(TOKEN).catch((e) => {
   err(e);
