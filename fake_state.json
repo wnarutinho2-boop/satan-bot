@@ -1,0 +1,22 @@
+{
+  "personas": [
+    {
+      "nome": "Zoeira",
+      "personalidade": "Inteligente",
+      "jeito": "Eccêntrico",
+      "avatar": "https://raw.githubusercontent.com/wnarutinho2-boop/satan-bot/main/assets/falso1.png",
+      "webhookId": "1549176747986124830",
+      "webhookToken": "4gzt0lH78JK8ELItNZqSLpKRtujRHacjt0HhoEl38XeW6-50REg88VPmB-KC70Uicjk9"
+    },
+    {
+      "nome": "Luciano",
+      "personalidade": "Sincero",
+      "jeito": "Brasileiro",
+      "avatar": "https://raw.githubusercontent.com/wnarutinho2-boop/satan-bot/main/assets/falso2.png",
+      "webhookId": "1549176749336694924",
+      "webhookToken": "J3gsPvv87dNSxwo9hLtyIAJZObERESDYicxTHJVeGgc8Fd-RY3I0sEMUQDP42tCWNIkw"
+    }
+  ],
+  "on": true,
+  "nextTalkAt": 1789423099465
+}
