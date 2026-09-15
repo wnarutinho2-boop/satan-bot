@@ -1127,15 +1127,25 @@ async function caca4lPadroes() {
 setInterval(vigiaNicks, 15 * 60 * 1000);
 vigiaNicks().catch(err);
 
-// ---------- vigia de nicks curtos: 15 nomes a cada 15min, livres vao pro repo ----------
+// ---------- vigia 4l permanente: lotes aleatorios so de 4 caracteres, avisa quando achar livre ----------
 const NICK_WATCH = path.join(ROOT, 'nick_watch.json');
-const NICK_LISTA = 'bruxo diabo treva brasa cinza morte infer hadal umbra carma odio zevu kryt vorth nyxor vexor zombi demon draco corvo urubu stygz hells lucif belze astar voidz nyxen morfe teneb nocte lucto fatum fatuo bruma brumal caoso trevo hades styxx vexar kryon zarth nyxar orbis umbral krept voraz algoz alg0z bruxa arcan demyon diaboo trevas6 cinzas6 vexy. kael. nyxz. zyre. qora. luxx. krix. vexx. zayn. ryzn k.ael v.exa n.yxz z.yre q.ora x.en v.oro k.rux z.umbra r.ex m.orte b.ruxa d.iabo c.inza t.reva h.adal u.mbra c.arma v.oraz a.lgoz'.split(' ');
+const AVISO_4L_CANAL = '1548910505500868709'; // adm
 async function vigiaNicks() {
-  const st = readJsonSafe(NICK_WATCH, { idx: 0, livres: [], done: false });
-  if (st.done) return;
-  const lote = NICK_LISTA.slice(st.idx, st.idx + 15);
-  if (!lote.length) { st.done = true; fs.writeFileSync(NICK_WATCH, JSON.stringify(st)); return; }
-  for (const w of lote) {
+  const st = readJsonSafe(NICK_WATCH, { tick: 0, livres: [], avisados: [] });
+  const L = 'abcdefghijklmnopqrstuvwxyz', D = '0123456789', S = '._';
+  const r = (x) => x[Math.floor(Math.random() * x.length)];
+  const gens = [
+    () => r(L) + r(L) + r(L) + r(L),                                   // 4l
+    () => r(L) + r(D) + r(L) + r(D),                                   // 4c alternado
+    () => r(D) + r(L) + r(L) + r(D),                                   // 4c capsula
+    () => r(D) + r(D) + r(D) + r(D),                                   // 4n
+    () => r(L) + r(S) + r(L) + r(L),                                   // semi l.ll
+    () => r(L) + r(L) + r(S) + r(L),                                   // semi ll.l
+  ];
+  const gen = gens[st.tick % gens.length];
+  const achadosAgora = [];
+  for (let i = 0; i < 15; i++) {
+    const w = gen();
     try {
       const res = await fetch('https://discord.com/api/v9/unique-username/username-attempt-unauthed', {
         method: 'POST',
@@ -1143,16 +1153,26 @@ async function vigiaNicks() {
         body: JSON.stringify({ username: w }),
         signal: AbortSignal.timeout(8000),
       });
-      if (res.status === 429) break; // espera a proxima janela de 15min
+      if (res.status === 429) break;
       const j = await res.json().catch(() => null);
-      if (j && j.taken === false && !st.livres.includes(w)) st.livres.push(w);
+      if (j && j.taken === false) {
+        if (!st.livres.includes(w)) st.livres.push(w);
+        achadosAgora.push(w);
+      }
     } catch (e) { /* rede */ }
     await new Promise((r2) => setTimeout(r2, 400));
   }
-  st.idx += lote.length;
-  if (st.idx >= NICK_LISTA.length) st.done = true;
+  st.tick++;
+  while (st.livres.length > 30) st.livres.shift();
   fs.writeFileSync(NICK_WATCH, JSON.stringify(st));
-  log('VIGIA_NICKS', { idx: st.idx, livres: st.livres.length });
+  for (const w of achadosAgora) {
+    const ch = await client.channels.fetch(AVISO_4L_CANAL).catch(() => null);
+    if (ch) await ch.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+      { type: 10, content: '# 4L LIVRE ACABOU DE APARECER' },
+      { type: 10, content: '**' + w + '** — corre la e pega antes que outro bot snipe.' },
+    ]}] }).catch((e) => err(e));
+  }
+  log('VIGIA_4L', { tick: st.tick, livres: st.livres.length, novos: achadosAgora.length });
 }
 
 setInterval(nukeTick, 60 * 1000);
