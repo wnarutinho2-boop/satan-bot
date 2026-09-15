@@ -255,7 +255,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -1123,7 +1123,37 @@ async function caca4lPadroes() {
   fs.writeFileSync(HUNT4L, JSON.stringify(out));
   log('CACA_4L_PADROES', { tentadas: out.tentadas, achados: Object.values(out.achados).flat().length });
 }
-caca4lPadroes().catch(err); // dispara na carga do modulo, nao depende do ready
+// vigia de nicks: consulta a lista aos poucos (limite do site e curto)
+setInterval(vigiaNicks, 15 * 60 * 1000);
+vigiaNicks().catch(err);
+
+// ---------- vigia de nicks curtos: 15 nomes a cada 15min, livres vao pro repo ----------
+const NICK_WATCH = path.join(ROOT, 'nick_watch.json');
+const NICK_LISTA = 'bruxo diabo treva brasa cinza morte infer hadal umbra carma odio zevu kryt vorth nyxor vexor zombi demon draco corvo urubu stygz hells lucif belze astar voidz nyxen morfe teneb nocte lucto fatum fatuo bruma brumal caoso trevo hades styxx vexar kryon zarth nyxar orbis umbral krept voraz algoz alg0z bruxa arcan demyon diaboo trevas6 cinzas6 vexy. kael. nyxz. zyre. qora. luxx. krix. vexx. zayn. ryzn k.ael v.exa n.yxz z.yre q.ora x.en v.oro k.rux z.umbra r.ex m.orte b.ruxa d.iabo c.inza t.reva h.adal u.mbra c.arma v.oraz a.lgoz'.split(' ');
+async function vigiaNicks() {
+  const st = readJsonSafe(NICK_WATCH, { idx: 0, livres: [], done: false });
+  if (st.done) return;
+  const lote = NICK_LISTA.slice(st.idx, st.idx + 15);
+  if (!lote.length) { st.done = true; fs.writeFileSync(NICK_WATCH, JSON.stringify(st)); return; }
+  for (const w of lote) {
+    try {
+      const res = await fetch('https://discord.com/api/v9/unique-username/username-attempt-unauthed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        body: JSON.stringify({ username: w }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.status === 429) break; // espera a proxima janela de 15min
+      const j = await res.json().catch(() => null);
+      if (j && j.taken === false && !st.livres.includes(w)) st.livres.push(w);
+    } catch (e) { /* rede */ }
+    await new Promise((r2) => setTimeout(r2, 400));
+  }
+  st.idx += lote.length;
+  if (st.idx >= NICK_LISTA.length) st.done = true;
+  fs.writeFileSync(NICK_WATCH, JSON.stringify(st));
+  log('VIGIA_NICKS', { idx: st.idx, livres: st.livres.length });
+}
 
 setInterval(nukeTick, 60 * 1000);
 setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 5 * 1000); // relogio vivo do painel (5s)
