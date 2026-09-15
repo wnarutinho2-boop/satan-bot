@@ -397,7 +397,6 @@ client.on('messageCreate', async (m) => {
       const chf = canalDoPainel(m.guild, m.channel.id);
       const tmp = await chf.send(nukeManualMsg()).catch(() => null);
       if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
-      await anunciarNuke(m.guild);
       log('NUKE_MANUAL', { guild: m.guild.id, msgs: r.msgs });
       return;
     }
@@ -907,40 +906,45 @@ function nukeOffMsg() {
 // limpa: chat das calls (bulk) + ・confessionario RECRRIA o canal identico (posicao/perms/topic)
 async function limparServer(guild) {
   let msgs = 0;
+  // 1) PRIMEIRO o confessionario: recria e anuncia na hora (sem esperar as calls)
+  const conf = [...guild.channels.cache.values()].find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
+  if (conf) {
+    try {
+      const f = await conf.fetch().catch(() => conf);
+      const eraSistema = guild.systemChannelId === f.id;
+      const over = f.permissionOverwrites.cache.map((o) => ({
+        id: o.id, type: o.type, allow: o.allow.bitfield.toString(), deny: o.deny.bitfield.toString(),
+      }));
+      const spec = {
+        name: f.name,
+        type: f.type,
+        parent: f.parentId || undefined,
+        topic: f.topic || undefined,
+        nsfw: f.nsfw,
+        rateLimitPerUser: f.rateLimitPerUser || undefined,
+        position: f.position,
+        permissionOverwrites: over,
+        reason: 'nuke: renascimento do confessionario',
+      };
+      await f.delete('nuke: confessionario renasce').catch((e) => err(e));
+      const novo = await guild.channels.create(spec).catch((e) => { err(e); return null; });
+      if (novo) {
+        log('NUKE_CONF_RECRIADO', { novo: novo.id, pos: novo.position, sistema: eraSistema });
+        if (eraSistema) await guild.setSystemChannel(novo).catch((e) => err(e));
+        await anunciarNuke(guild); // mensagem entra no canal novo na hora
+      }
+    } catch (e) { err(e); }
+  }
+  // 2) depois as calls (mais rapido: pausa menor entre lotes)
   for (const ch of [...guild.channels.cache.values()]) {
     try {
-      if (ch.type === 2) { // call: limpa o chat de texto dela
-        while (true) {
-          const del = await ch.bulkDelete(100, true).catch(() => null);
-          if (!del || del.size === 0) break;
-          msgs += del.size;
-          if (del.size < 100) break;
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-      } else if ((ch.type === 0 || ch.type === 5) && /confessionar/i.test(ch.name || '')) {
-        // confessionario: snapshot completo -> apaga o canal -> recria identico
-        const f = await ch.fetch().catch(() => ch);
-        const eraSistema = guild.systemChannelId === f.id;
-        const over = f.permissionOverwrites.cache.map((o) => ({
-          id: o.id, type: o.type, allow: o.allow.bitfield.toString(), deny: o.deny.bitfield.toString(),
-        }));
-        const spec = {
-          name: f.name,
-          type: f.type,
-          parent: f.parentId || undefined,
-          topic: f.topic || undefined,
-          nsfw: f.nsfw,
-          rateLimitPerUser: f.rateLimitPerUser || undefined,
-          position: f.position,
-          permissionOverwrites: over,
-          reason: 'nuke: renascimento do confessionario',
-        };
-        await f.delete('nuke: confessionario renasce').catch((e) => err(e));
-        const novo = await guild.channels.create(spec).catch((e) => { err(e); return null; });
-        if (novo) {
-          log('NUKE_CONF_RECRIADO', { novo: novo.id, pos: novo.position, sistema: eraSistema });
-          if (eraSistema) await guild.setSystemChannel(novo).catch((e) => err(e));
-        }
+      if (ch.type !== 2) continue;
+      while (true) {
+        const del = await ch.bulkDelete(100, true).catch(() => null);
+        if (!del || del.size === 0) break;
+        msgs += del.size;
+        if (del.size < 100) break;
+        await new Promise((r) => setTimeout(r, 600));
       }
     } catch (e) { err(e); }
   }
@@ -968,7 +972,6 @@ async function nukeTick() {
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
       ghStateSyncTick();
       await editarPainelNuke(st);
-      await anunciarNuke(guild);
       log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, nextAt: st.nextAt });
     }
   } catch (e) { err(e); }
