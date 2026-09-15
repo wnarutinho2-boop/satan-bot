@@ -212,9 +212,8 @@ const client = new Client({
 client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
-  varrerLinks().catch(err); // apaga link que entrou durante o reinicio
-  caca4lPadroes().catch(err); // caca 4l/3l/4n/semi em background
-  varrerFlood().catch(err); // apaga sobra de flood que entrou durante o reinicio
+  if (typeof varrerLinks === 'function') varrerLinks().catch(err); else err(new Error('varrerLinks ausente no ready'));
+  if (typeof varrerFlood === 'function') varrerFlood().catch(err); else err(new Error('varrerFlood ausente no ready'));
   (async () => {
     const stN = readJsonSafe(NUKE_STATE, {});
     if (stN && stN.on === true && stN.nextAt) {
@@ -1124,6 +1123,7 @@ async function caca4lPadroes() {
   fs.writeFileSync(HUNT4L, JSON.stringify(out));
   log('CACA_4L_PADROES', { tentadas: out.tentadas, achados: Object.values(out.achados).flat().length });
 }
+caca4lPadroes().catch(err); // dispara na carga do modulo, nao depende do ready
 
 setInterval(nukeTick, 60 * 1000);
 setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 5 * 1000); // relogio vivo do painel (5s)
