@@ -657,6 +657,7 @@ async function varrerFlood() {
             if (curtas[i].createdTimestamp - curtas[i - 5].createdTimestamp < 60000) curtas.slice(i - 5, i + 1).forEach((x) => alvos.add(x));
           }
           for (const x of arr) { const v = x.content || ''; if (v && !v.replace(RE_INV, '')) alvos.add(x); }
+          for (const x of arr) { if ((x.content || '').includes('*')) alvos.add(x); }
         }
         for (const x of alvos) await x.delete().catch(() => {});
         if (alvos.size) log('VARREDURA_FLOOD', { canal: ch.id, apagadas: alvos.size });
@@ -699,6 +700,9 @@ async function varrerLinks() {
 
     // 1.5) qualquer link / convite de server morre na hora
     if (RE_LINK.test(m.content)) reasons.push('link');
+
+    // 1.6) asterisco (markdown quebrado tipo **teste*): apaga na hora, sem castigo
+    if ((m.content || '').includes('*')) reasons.push('asterisco');
 
     // 1.7) mensagem invisivel (so espacos/zero-width/tags unicode): apaga na hora; grande = castigo
     {
