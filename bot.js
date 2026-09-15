@@ -934,21 +934,8 @@ function nukeAnuncioMsg() {
 async function anunciarNuke(guild) {
   const ch = guild.channels.cache.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
   if (!ch) return;
-  // webhook: o anuncio nao sai como o bot (nome/avatar iguais, sem a cor do cargo do bot)
-  try {
-    const wh = await ch.createWebhook({
-      name: client.user.username,
-      avatar: client.user.displayAvatarURL({ forceStatic: true, extension: 'png' }),
-    });
-    const msg = await wh.send(nukeAnuncioMsg()).catch((e) => { err(e); return null; });
-    await wh.delete().catch(() => {});
-    if (msg) setTimeout(() => ch.messages.delete(msg.id).catch(() => {}), 5000);
-    log('NUKE_ANUNCIO_WEBHOOK', { canal: ch.id });
-  } catch (e) {
-    err(e);
-    const msg = await ch.send(nukeAnuncioMsg()).catch(() => null); // fallback: nao deixa o anuncio morrer
-    if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
-  }
+  const msg = await ch.send(nukeAnuncioMsg()).catch((e) => { err(e); return null; });
+  if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
 }
 function nukeManualMsg() {
   return {
