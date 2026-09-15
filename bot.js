@@ -107,6 +107,13 @@ function menuMsg() {
   };
 }
 
+// padroes 4c na ordem do que ainda cai livre (dados reais: 6s98 0h3z 8w4a sw29 jc82 skd9 xh7s)
+const R4 = 'shwxzkjvq', C4 = 'bcdfghjklmnpqrstvwxyz', L4x = 'abcdefghijklmnopqrstuvwxyz', D4x = '0123456789';
+const PADROES_4C = [
+  [D4x, R4, D4x, R4], [D4x, R4, D4x, D4x], [R4, C4, D4x, D4x], [C4, C4, D4x, D4x],
+  [D4x, L4x, D4x, L4x], [D4x, L4x, D4x, D4x], [L4x, L4x, D4x, L4x], [L4x, L4x, D4x, D4x],
+];
+
 // painel vivo do .4l: checagem em tempo real, livres e tomados
 function painel4l(checadas, total, livres, tomadas, atual, vivo) {
   const comp = [
@@ -480,8 +487,7 @@ client.on('messageCreate', async (m) => {
       await m.delete().catch(() => {});
       const args = c.slice(4).trim().split(/[\s,]+/).filter((w) => w).slice(0, 10);
       const rd = (x) => x[Math.floor(Math.random() * x.length)];
-      const L4 = 'abcdefghijklmnopqrstuvwxyz', D4 = '0123456789';
-      const gen4c = () => { let w; do { w = rd(L4 + D4) + rd(L4 + D4) + rd(L4 + D4) + rd(L4 + D4); } while (!/\d/.test(w) || !/[a-z]/.test(w)); return w; };
+      const gen4c = () => PADROES_4C[Math.floor(Math.random() * PADROES_4C.length)].map((cs) => rd(cs)).join('');
       const fila = args.length ? args : Array.from({ length: 60 }, gen4c);
       const livres = []; const tomadas = [];
       const tmp = await whSend(m.channel, painel4l(0, fila.length, livres, tomadas, null, true)).catch(() => null);
@@ -1235,14 +1241,7 @@ async function vigiaNicks() {
   const st = readJsonSafe(NICK_WATCH, { tick: 0, livres: [], avisados: [] });
   const L = 'abcdefghijklmnopqrstuvwxyz', D = '0123456789', S = '._';
   const r = (x) => x[Math.floor(Math.random() * x.length)];
-  const gens = [
-    () => r(L) + r(D) + r(L) + r(D),                                   // 4c alternado
-    () => r(D) + r(L) + r(L) + r(D),                                   // 4c capsula
-    () => r(D) + r(L) + r(D) + r(D),                                   // 4c
-    () => r(L) + r(L) + r(D) + r(D),                                   // 4c
-    () => r(D) + r(D) + r(L) + r(L),                                   // 4c
-    () => { let w; do { w = r(L + D) + r(L + D) + r(L + D) + r(L + D); } while (!/\d/.test(w) || !/[a-z]/.test(w)); return w; }, // 4c livre
-  ];
+  const gens = PADROES_4C.map((p) => () => p.map((cs) => r(cs)).join(''));
   const gen = gens[st.tick % gens.length];
   const achadosAgora = [];
   for (let i = 0; i < 15; i++) {
