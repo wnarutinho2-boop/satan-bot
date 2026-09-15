@@ -1,0 +1,15 @@
+{
+  "quando": "2026-09-15T18:26:42.456Z",
+  "confAchado": null,
+  "confDelete": null,
+  "confCreate": null,
+  "anuncio": null,
+  "calls": [
+    {
+      "canal": "Geral",
+      "apagadas": 0
+    }
+  ],
+  "erros": [],
+  "totalMsgs": 0
+}
