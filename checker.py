@@ -149,7 +149,7 @@ def main():
     print(f'[worker {WORKER}/{WORKERS}] varredura sistematica | proxies: {len(PROXIES)}', flush=True)
     prog, psha = repo_get('sweep_state.json')
     prog = prog or {}
-    me = prog.get(str(WORKER), {'k4': 0, 'ksemi': 0})
+    me = prog.get(str(WORKER), {'k4': 0, 'ksemi': 0, 'st': '', 'rl': 0, 'er': 0})
     inicio = time.time()
     checks = 0
     ultimo_save = time.time() - 300  # primeiro save ja na primeira volta
@@ -182,12 +182,15 @@ def main():
                     me['k4'] += 1
             st, ra = checa(w)
             checks += 1
+            me['st'] = st
+            if st == 'rl': me['rl'] = me.get('rl', 0) + 1
+            if st == 'erro': me['er'] = me.get('er', 0) + 1
             if st == 'livre':
                 print(f'[HIT] {w}', flush=True)
                 avisa(w)
                 salva_hit(w, checks)
             elif st == 'rl':
-                espera = min(float(ra or 60), 900)
+                espera = min(float(ra or 60), 120)
                 print(f'[rl] espera {espera:.0f}s', flush=True)
                 time.sleep(espera)
                 continue
