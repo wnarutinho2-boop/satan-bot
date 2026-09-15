@@ -45,18 +45,21 @@ def checa(w):
 
 def gen():
     r = random.random()
-    if r < 0.50:  # 4l: varre a fatia exclusiva do worker
+    if r < 0.45:  # 4l: varre a fatia exclusiva do worker
         return gen4l_fatia()
-    if r < 0.92:  # 4c (o que os checkers tao achando: numero+letra)
+    if r < 0.78:  # 4c (o que os checkers tao achando: numero+letra)
         return random.choice([
             random.choice(D) + random.choice(L) + random.choice(D) + random.choice(D),
             random.choice(D) + random.choice(L) + random.choice(D) + random.choice(L),
             random.choice(L) + random.choice(D) + random.choice(D) + random.choice(L),
             random.choice(D) + random.choice(D) + random.choice(L) + random.choice(D),
         ])
-    a = random.choice(L) + random.choice(L) + random.choice(L)
+    if r < 0.90:  # 4n: so numeros
+        return random.choice(D) + random.choice(D) + random.choice(D) + random.choice(D)
+    # semi 4: 3 caracteres (letra/numero) + ponto/underscore
+    a = random.choice(L + D) + random.choice(L + D) + random.choice(L + D)
     p = random.randint(1, 2)
-    return a[:p] + random.choice(S) + a[p:]  # semi 4
+    return a[:p] + random.choice(S) + a[p:]
 
 def estado_on():
     out = curl(['-H', 'Authorization: token ' + GTOK,
