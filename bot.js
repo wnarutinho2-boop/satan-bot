@@ -25,6 +25,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 // anti-flood (ajustavel via antispam_config.json)
 const ANTIFLOOD_CFG = path.join(ROOT, 'antispam_config.json');
+const RE_INV = /[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2800\u3164\ufeff\ufe00-\ufe0f\ufff0-\ufff8\ufffe\uffff\u{e0000}-\u{e007f}]/gu;
 const ANTIFLOOD_DEFAULT = { chars: 500, windowMs: 6000, max: 5, penaltyMs: 10000, repeatWindowMs: 30000 };
 const floodBuf = new Map();
 const repBuf = new Map();
@@ -35,7 +36,8 @@ const MUTE_STATE = path.join(ROOT, 'mute_state.json');
 const MUTE_BASE_MS = 60 * 60 * 1000;
 const REP_MUTE_QTD = 10;
 const repStreak = new Map(); // userId -> { sig, count }
-const emoStreak = new Map(); // userId -> qtd seguida de msgs so de emoji
+const emoStreak = new Map();
+const shortBuf = new Map(); // userId -> msgs curtas (spam W/Ww) // userId -> qtd seguida de msgs so de emoji
 const linkBuf = new Map();   // userId -> [timestamps de links]
 const RE_LINK = /(https?:\/\/|discord\.gg\/|discord\.com\/invite|discordapp\.com\/)/i;
 
@@ -212,6 +214,7 @@ client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
   varrerLinks().catch(err); // apaga link que entrou durante o reinicio
+  varrerFlood().catch(err); // apaga sobra de flood que entrou durante o reinicio
   (async () => {
     const stN = readJsonSafe(NUKE_STATE, {});
     if (stN && stN.on === true && stN.nextAt) {
@@ -532,6 +535,36 @@ async function aplicarCastigo(m, motivo) {
   });
 }
 
+// varre os canais ao ligar: apaga sobra de flood/repetida/invisivel que passou durante o gap do restart
+async function varrerFlood() {
+  for (const gid of INFERNO_GUILDS) {
+    const g = client.guilds.cache.get(gid);
+    if (!g) continue;
+    for (const ch of [...g.channels.cache.values()]) {
+      if (!ch.isTextBased()) continue;
+      try {
+        const msgs = (await ch.messages.fetch({ limit: 100 })).filter((x) => !x.author.bot && x.author.id !== OWNER_ID && x.deletable);
+        const por = {};
+        for (const x of [...msgs.values()]) (por[x.author.id] = por[x.author.id] || []).push(x);
+        const alvos = new Set();
+        for (const arr of Object.values(por)) {
+          arr.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+          for (let i = 1; i < arr.length; i++) {
+            if (msgSig(arr[i]) === msgSig(arr[i - 1]) && arr[i].createdTimestamp - arr[i - 1].createdTimestamp < 30000) alvos.add(arr[i]);
+          }
+          const curtas = arr.filter((x) => { const v = (x.content || '').trim(); return v.length > 0 && v.length <= 3; });
+          for (let i = 5; i < curtas.length; i++) {
+            if (curtas[i].createdTimestamp - curtas[i - 5].createdTimestamp < 60000) curtas.slice(i - 5, i + 1).forEach((x) => alvos.add(x));
+          }
+          for (const x of arr) { const v = x.content || ''; if (v && !v.replace(RE_INV, '')) alvos.add(x); }
+        }
+        for (const x of alvos) await x.delete().catch(() => {});
+        if (alvos.size) log('VARREDURA_FLOOD', { canal: ch.id, apagadas: alvos.size });
+      } catch (e) { /* sem permissao, segue */ }
+    }
+  }
+}
+
 // varre os canais ao ligar: apaga link que passou enquanto o bot reiniciava
 async function varrerLinks() {
   for (const gid of INFERNO_GUILDS) {
@@ -570,7 +603,7 @@ async function varrerLinks() {
     // 1.7) mensagem invisivel (so espacos/zero-width/tags unicode): apaga na hora; grande = castigo
     {
       const bruto = m.content || '';
-      const visivel = bruto.replace(/[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2800\u3164\ufeff\ufe00-\ufe0f\ufff0-\ufff8\ufffe\uffff\u{e0000}-\u{e007f}]/gu, '');
+      const visivel = bruto.replace(RE_INV, '');
       if (bruto.length > 0 && visivel.length === 0) {
         reasons.push('invisivel');
       }
@@ -632,6 +665,24 @@ async function varrerLinks() {
       }
     }
 
+
+    // 7) spam de msg curta (W, Ww, kkk alternado curto): 6+ msgs de ate 3 caracteres em 60s -> apaga tudo + penalidade
+    {
+      const vis = (m.content || '').trim();
+      if (vis.length > 0 && vis.length <= 3) {
+        const arr = (shortBuf.get(m.author.id) || []).filter((e) => now - e.t < 60000);
+        arr.push({ t: now, id: m.id });
+        shortBuf.set(m.author.id, arr);
+        if (arr.length >= 6) {
+          reasons.push('spam-curto');
+          penaltyUntil.set(m.author.id, now + cfg.penaltyMs);
+          for (const e of arr) {
+            if (e.id === m.id) continue;
+            await m.channel.messages.delete(e.id).catch(() => {});
+          }
+        }
+      }
+    }
 
     // 6) chuva de link: 10+ links em 10 minutos -> castigo progressivo
     if (RE_LINK.test(m.content || '')) {
