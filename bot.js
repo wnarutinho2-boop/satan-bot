@@ -61,7 +61,7 @@ function msgKind(m) {
 
 // nuke (owner): recria o canal a cada 12h
 const NUKE_STATE = path.join(ROOT, 'nuke_state.json');
-const NUKE_EVERY_MS = 60 * 60 * 1000; // 1h
+const NUKE_EVERY_MS = 20 * 60 * 1000; // 20min
 
 // bump reminder (estilo fibo): 2h apos o bump do disboard, repete a cada 2h
 const DISBOARD_ID = '302050872383242240';
@@ -99,7 +99,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 1h limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -834,7 +834,8 @@ function fmtResto(nextAt) {
   const h = Math.floor(ms / 3600000);
   const mn = Math.floor((ms % 3600000) / 60000);
   const s = Math.floor((ms % 60000) / 1000);
-  return h + 'h ' + String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
+  if (h > 0) return h + 'h ' + String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
+  return String(mn).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's';
 }
 function barraResto(nextAt) {
   const frac = Math.max(0, Math.min(1, (nextAt - Date.now()) / NUKE_EVERY_MS));
@@ -863,7 +864,7 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: barraResto(nextAt) },
         { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** limpa + **・confessionario** renasce do zero (mesma posicao e perms).\nrepete a cada 1h. o relogio anda a cada 5 segundos.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** limpa + **・confessionario** renasce do zero (mesma posicao e perms).\nrepete a cada 20min. o relogio anda a cada 5 segundos.' },
       ],
     }],
   };
