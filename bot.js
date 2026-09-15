@@ -107,6 +107,19 @@ function menuMsg() {
   };
 }
 
+// painel vivo do .4l: checagem em tempo real, livres e tomados
+function painel4l(checadas, total, livres, tomadas, atual, vivo) {
+  const comp = [
+    { type: 10, content: '# cacada 4l' + (vivo ? ' — ao vivo' : ' — fim') },
+    { type: 10, content: 'checadas **' + checadas + '** de **' + total + '**' + (atual ? ' — agora: **' + atual + '**' : '') },
+    { type: 14, spacing: 1, divider: true },
+    { type: 10, content: livres.length ? '**LIVRES PRA PEGAR:**\n' + livres.map((w) => '> **' + w + '**').join('\n') : '**LIVRES PRA PEGAR:** nenhum ainda' },
+    { type: 14, spacing: 1, divider: false },
+    { type: 10, content: '**ja tomados (ultimos 14):** ' + (tomadas.slice(-14).join(' · ') || '—') },
+  ];
+  return { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: comp }] };
+}
+
 // lembrete de bump (components V2), marca o alvo configurado (.bump)
 function mentionsOf(t) {
   const us = (t && t.users) || [];
@@ -466,13 +479,12 @@ client.on('messageCreate', async (m) => {
     if (c === '.4l' || c.startsWith('.4l ')) {
       await m.delete().catch(() => {});
       const args = c.slice(4).trim().split(/[\s,]+/).filter((w) => w).slice(0, 10);
-      const tmp = await whSend(m.channel, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
-        { type: 10, content: args.length ? 'consultando o discord sobre esses nicks...' : 'cacando 4l disponivel (ate 60 tentativas)...' },
-      ]}] }).catch(() => null);
       const rd = (x) => x[Math.floor(Math.random() * x.length)];
       const conso = 'vkzxqjwrlmntchdbsgy', vog = 'aeiouy';
       const fila = args.length ? args : Array.from({ length: 60 }, () => rd(conso) + rd(vog) + rd(conso) + rd(vog));
       const livres = []; const tomadas = [];
+      const tmp = await whSend(m.channel, painel4l(0, fila.length, livres, tomadas, null, true)).catch(() => null);
+      let checadas = 0; let ultimoEdit = Date.now();
       for (const wRaw of fila) {
         const w = wRaw.toLowerCase();
         if (!/^[a-z0-9._]{2,32}$/.test(w)) continue;
@@ -482,22 +494,18 @@ client.on('messageCreate', async (m) => {
             headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
             body: JSON.stringify({ username: w }),
           });
-          if (res.status === 429) { tomadas.push(w + '(limite)'); await new Promise((r2) => setTimeout(r2, 2000)); continue; }
+          if (res.status === 429) { tomadas.push(w); await new Promise((r2) => setTimeout(r2, 2000)); continue; }
           const j = await res.json().catch(() => null);
           if (j && j.taken === false) livres.push(w); else tomadas.push(w);
         } catch (e) { /* rede */ }
+        checadas++;
+        if (tmp && Date.now() - ultimoEdit > 1500) {
+          await whEdit(m.channel, tmp.id, painel4l(checadas, fila.length, livres, tomadas, w, true)).catch(() => {});
+          ultimoEdit = Date.now();
+        }
         await new Promise((r2) => setTimeout(r2, 350));
       }
-      let corpo;
-      if (args.length) {
-        corpo = livres.length ? 'livre(s): **' + livres.join('** · **') + '**' : 'todos esses ja tao tomados: ' + tomadas.join(', ');
-      } else {
-        corpo = livres.length ? '4l livres pra pegar:\n**' + livres.join('** · **') + '**' : 'nenhum 4l livre nessas 60 tentativas — 4l puro ta praticamente esgotado no discord. usa .4l nome1 nome2 pra eu consultar nomes que vc escolher.';
-      }
-      if (tmp) await whEdit(m.channel, tmp.id, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
-        { type: 10, content: '# consulta 4l' },
-        { type: 10, content: corpo },
-      ]}] }).catch(() => {});
+      if (tmp) await whEdit(m.channel, tmp.id, painel4l(checadas, fila.length, livres, tomadas, null, false)).catch(() => {});
       log('CONSULTA_4L', { livres: livres.length, tentadas: fila.length });
       return;
     }
