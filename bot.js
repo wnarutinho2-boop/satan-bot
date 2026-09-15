@@ -253,8 +253,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'antiflood_log.json'];
-const ANTIFLOOD_LOG = path.join(ROOT, 'antiflood_log.json');
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -554,7 +553,7 @@ async function varrerLinks() {
     // 1.7) mensagem invisivel (so espacos/zero-width/tags unicode): apaga na hora; grande = castigo
     {
       const bruto = m.content || '';
-      const visivel = bruto.replace(/[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2800\u3164\ufeff\ufe00-\ufe0f\ufff0-\ufff8\ufffe\uffff\ue0000-\ue007f]/gu, '');
+      const visivel = bruto.replace(/[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2800\u3164\ufeff\ufe00-\ufe0f\ufff0-\ufff8\ufffe\uffff\u{e0000}-\u{e007f}]/gu, '');
       if (bruto.length > 0 && visivel.length === 0) {
         reasons.push('invisivel');
       }
@@ -627,12 +626,6 @@ async function varrerLinks() {
 
     if (reasons.length && m.deletable) {
       await m.delete().catch(() => {});
-      try {
-        const L = readJsonSafe(ANTIFLOOD_LOG, []);
-        L.push({ ts: now, name: m.author.username, reason: reasons.join('+'), txt: (m.content || '').slice(0, 120) });
-        while (L.length > 60) L.shift();
-        fs.writeFileSync(ANTIFLOOD_LOG, JSON.stringify(L));
-      } catch (e) { err(e); }
       log('ANTIFLOOD', { reason: reasons.join('+'), kind: msgKind(m), author: m.author.id, channel: m.channelId, len: m.content.length });
     }
   } catch (e) {
