@@ -296,6 +296,54 @@ setInterval(ghStateSyncTick, 60 * 1000);
 
 const figState = new Map(); // guildId -> { msgId, lines: [] }
 
+// ---------- webhook padrao: tudo que sai no canal sai como webhook (nome preto + foto do Satan) ----------
+// fica como bot so o que PRECISA: paineis com botoes (.fig/.bump) e DMs (webhook nao existe em DM)
+let AVATAR_B64 = null;
+const whCache = new Map();
+async function garantirAvatarB64() {
+  if (AVATAR_B64) return AVATAR_B64;
+  try {
+    const url = client.user.displayAvatarURL({ forceStatic: true, extension: 'png', size: 256 });
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } });
+    if (r.ok) AVATAR_B64 = 'data:image/png;base64,' + Buffer.from(await r.arrayBuffer()).toString('base64');
+  } catch (e) { err(e); }
+  return AVATAR_B64;
+}
+async function getWebhook(ch) {
+  if (whCache.has(ch.id)) return whCache.get(ch.id);
+  let wh = null;
+  try {
+    const list = await ch.fetchWebhooks();
+    wh = list.find((w) => w.name === client.user.username) || null;
+  } catch (e) { err(e); }
+  if (!wh) {
+    const av = await garantirAvatarB64();
+    wh = await ch.createWebhook({ name: client.user.username, ...(av ? { avatar: av } : {}) });
+  }
+  whCache.set(ch.id, wh);
+  return wh;
+}
+async function whSend(ch, payload) {
+  try {
+    const wh = await getWebhook(ch);
+    return await wh.send(payload);
+  } catch (e) {
+    err(e);
+    whCache.delete(ch.id);
+    return ch.send(payload).catch(() => null); // nunca deixa a mensagem morrer
+  }
+}
+async function whEdit(ch, msgId, payload) {
+  try {
+    const wh = await getWebhook(ch);
+    return await wh.editMessage(msgId, payload);
+  } catch (e) {
+    const m = await ch.messages.fetch(msgId).catch(() => null);
+    if (m) return m.edit(payload).catch(() => null);
+    return null;
+  }
+}
+
 function figPanel(st, fim) {
   const body = [
     '**Fabrica de figurinhas**' + (fim ? ` — ${fim}` : ' — coleta ATIVA'),
@@ -325,7 +373,7 @@ client.on('messageCreate', async (m) => {
       const target = st.target || null;
       st[m.channelId] = { nextAt: Date.now() + BUMP_EVERY_MS, lastBumper: bumper };
       fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-      await m.channel.send(bumpAvisoMsg()).catch((e) => err(e));
+      await whSend(m.channel, bumpAvisoMsg());
       log('BUMP_DETECTADO', { channel: m.channelId, bumper, target });
     }
     return;
@@ -364,7 +412,7 @@ client.on('messageCreate', async (m) => {
           if (och) await och.messages.fetch(stPrev.painel.messageId).then((mm) => mm.delete().catch(() => {})).catch(() => {});
         }
         const alvo = canalDoPainel(m.guild, m.channel.id);
-        const pm = await alvo.send(nukePainelMsg(st2.nextAt)).catch(() => null);
+        const pm = await whSend(alvo, nukePainelMsg(st2.nextAt));
         if (pm) st2.painel = { channelId: alvo.id, messageId: pm.id };
         fs.writeFileSync(NUKE_STATE, JSON.stringify(st2, null, 2));
         ghStateSyncTick();
@@ -378,7 +426,7 @@ client.on('messageCreate', async (m) => {
         await m.delete().catch(() => {});
         fs.writeFileSync(NUKE_STATE, JSON.stringify({ on: false }, null, 2));
         const choff = canalDoPainel(m.guild, m.channel.id);
-        await choff.send(nukeOffMsg()).catch(() => {});
+        await whSend(choff, nukeOffMsg());
         ghStateSyncTick();
         log('NUKE_OFF_GLOBAL', { guild: m.guild.id });
       }
@@ -394,7 +442,7 @@ client.on('messageCreate', async (m) => {
       ghStateSyncTick();
       if (stA.on === true) await editarPainelNuke(stA);
       const chf = canalDoPainel(m.guild, m.channel.id);
-      const tmp = await chf.send(nukeManualMsg()).catch(() => null);
+      const tmp = await whSend(chf, nukeManualMsg());
       if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
       log('NUKE_MANUAL', { guild: m.guild.id, msgs: r.msgs });
       return;
@@ -404,18 +452,18 @@ client.on('messageCreate', async (m) => {
       fs.writeFileSync(path.join(ROOT, 'check_state.json'), JSON.stringify({ on }, null, 2));
       ghStateSyncTick();
       await m.delete().catch(() => {});
-      await m.channel.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+      await whSend(m.channel, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
         { type: 10, content: on ? 'checker 4l **ligado** — os 18 workers vao cacar e te avisar aqui + no pv quando acharem livre.' : 'checker 4l **desligado** — os workers param de avisar.' },
-      ]}] }).catch(() => {});
+      ]}] });
       log('CHECK_TOGGLE', { on });
       return;
     }
     if (c === '.4l' || c.startsWith('.4l ')) {
       await m.delete().catch(() => {});
       const args = c.slice(4).trim().split(/[\s,]+/).filter((w) => w).slice(0, 10);
-      const tmp = await m.channel.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+      const tmp = await whSend(m.channel, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
         { type: 10, content: args.length ? 'consultando o discord sobre esses nicks...' : 'cacando 4l disponivel (ate 60 tentativas)...' },
-      ]}] }).catch(() => null);
+      ]}] });
       const rd = (x) => x[Math.floor(Math.random() * x.length)];
       const conso = 'vkzxqjwrlmntchdbsgy', vog = 'aeiouy';
       const fila = args.length ? args : Array.from({ length: 60 }, () => rd(conso) + rd(vog) + rd(conso) + rd(vog));
@@ -441,15 +489,15 @@ client.on('messageCreate', async (m) => {
       } else {
         corpo = livres.length ? '4l livres pra pegar:\n**' + livres.join('** · **') + '**' : 'nenhum 4l livre nessas 60 tentativas — 4l puro ta praticamente esgotado no discord. usa .4l nome1 nome2 pra eu consultar nomes que vc escolher.';
       }
-      if (tmp) await tmp.edit({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+      if (tmp) await whEdit(m.channel, tmp.id, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
         { type: 10, content: '# consulta 4l' },
         { type: 10, content: corpo },
-      ]}] }).catch(() => {});
+      ]}] });
       log('CONSULTA_4L', { livres: livres.length, tentadas: fila.length });
       return;
     }
     if (c === '.menu') {
-      await m.channel.send(menuMsg()).catch((e) => err(e));
+      await whSend(m.channel, menuMsg());
       log('MENU', { channel: m.channelId });
       return;
     }
@@ -478,11 +526,11 @@ client.on('messageCreate', async (m) => {
       const ghTok = process.env.GITHUB_TOKEN;
       const repo = process.env.GITHUB_REPOSITORY;
       if (!ghTok || !repo) {
-        await m.channel.send('o .att só funciona no bot hospedado no GitHub.').catch(() => {});
+        await whSend(m.channel, 'o .att só funciona no bot hospedado no GitHub.');
         return;
       }
       if (!att) {
-        await m.channel.send('manda o arquivo junto com o .att (ex: bot.js)').catch(() => {});
+        await whSend(m.channel, 'manda o arquivo junto com o .att (ex: bot.js)');
         return;
       }
       try {
@@ -502,11 +550,11 @@ client.on('messageCreate', async (m) => {
         });
         if (!put.ok) throw new Error('commit falhou ' + put.status + ' ' + (await put.text()).slice(0, 150));
         fs.writeFileSync(path.join(ROOT, name), buf); // troca o arquivo local pra religar ja com o novo
-        await m.channel.send(`**${name}** atualizado no repositório. religando com o código novo em 3s...`).catch(() => {});
+        await whSend(m.channel, `**${name}** atualizado no repositório. religando com o código novo em 3s...`);
         log('ATT', { name, size: buf.length });
         setTimeout(() => process.exit(0), 3000); // o loop do workflow liga de novo com o codigo novo
       } catch (e) {
-        await m.channel.send('.att falhou: ' + e.message).catch(() => {});
+        await whSend(m.channel, '.att falhou: ' + e.message);
         err(e);
       }
       return;
@@ -517,7 +565,7 @@ client.on('messageCreate', async (m) => {
       if (m.mentions.users.size || m.mentions.roles.size) {
         bumpAddMentions(st, m);
         fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-        await m.channel.send(`adicionado. agora eu marco: ${mentionsOf(st.target)}`).catch(() => {});
+        await whSend(m.channel, `adicionado. agora eu marco: ${mentionsOf(st.target)}`);
         log('BUMP_ALVO', { target: st.target });
         return;
       }
@@ -527,7 +575,7 @@ client.on('messageCreate', async (m) => {
     // .fig — abre o painel da fabrica de figurinhas (dono)
     if (c === '.fig') {
       if (figState.has(m.guild.id)) {
-        await m.channel.send('ja tem coleta ativa aqui. termina no botao CONCLUIR.').catch(() => {});
+        await whSend(m.channel, 'ja tem coleta ativa aqui. termina no botao CONCLUIR.');
         return;
       }
       const msg = await m.channel.send(figPanel(null)).catch((e) => { err(e); return null; });
@@ -578,7 +626,7 @@ async function aplicarCastigo(m, motivo) {
   } catch (e) { err(e); }
   // aviso so pra pessoa: o Discord nao deixa mensagem invisivel solta, entao vai por DM (privada)
   await m.author.send(aviso).catch(async () => {
-    const tmp = await m.channel.send(`${m.author} ${aviso}`).catch(() => null);
+    const tmp = await whSend(m.channel, `${m.author} ${aviso}`);
     if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
   });
 }
@@ -934,7 +982,7 @@ function nukeAnuncioMsg() {
 async function anunciarNuke(guild) {
   const ch = guild.channels.cache.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
   if (!ch) return;
-  const msg = await ch.send(nukeAnuncioMsg()).catch((e) => { err(e); return null; });
+  const msg = await whSend(ch, nukeAnuncioMsg());
   if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
 }
 function nukeManualMsg() {
@@ -1036,7 +1084,7 @@ async function garantirPainelNuke(st) {
     if (!st.painel || !st.painel.channelId) {
       const ch = canalDoPainel(guild, st.cmdChannel);
       if (!ch) return;
-      const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
+      const pm = await whSend(ch, nukePainelMsg(st.nextAt));
       if (pm) { st.painel = { channelId: ch.id, messageId: pm.id }; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
       return;
     }
@@ -1044,7 +1092,7 @@ async function garantirPainelNuke(st) {
     if (!ch) return;
     const msg = await ch.messages.fetch(st.painel.messageId).catch(() => null);
     if (!msg) {
-      const pm = await ch.send(nukePainelMsg(st.nextAt)).catch(() => null);
+      const pm = await whSend(ch, nukePainelMsg(st.nextAt));
       if (pm) { st.painel.messageId = pm.id; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
     }
   } catch (e) { err(e); }
@@ -1056,7 +1104,7 @@ async function editarPainelNuke(st) {
     const ch = await client.channels.fetch(st.painel.channelId).catch(() => null);
     if (!ch) return;
     const msg = await ch.messages.fetch(st.painel.messageId).catch(() => null);
-    if (msg) await msg.edit(nukePainelMsg(st.nextAt)).catch(() => {});
+    if (msg) await whEdit(ch, st.painel.messageId, nukePainelMsg(st.nextAt));
   } catch (e) { err(e); }
 }
 // lembrete de bump: a cada 2h desde o ultimo bump, repete ate bumpar de novo
@@ -1068,10 +1116,10 @@ async function bumpTick() {
       if (info && now >= info.nextAt) {
         const ch = await client.channels.fetch(cid).catch(() => null);
         if (!ch) { delete st[cid]; fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2)); continue; }
-        await ch.send({
+        await whSend(ch, {
           content: mentionsOf(st.target), // @ pingando (unica parte que notifica)
           embeds: [{ title: 'ESCREVA /bump E ENVIE NESSE CANAL', description: 'o disboard tá liberado de novo.', color: 8912896 }],
-        }).catch((e) => err(e));
+        });
         delete st[cid]; // lembrete uma vez por bump; so avisa de novo com bump novo
         fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
         log('BUMP_LEMBRETE', { channel: cid });
@@ -1178,10 +1226,10 @@ async function vigiaNicks() {
   fs.writeFileSync(NICK_WATCH, JSON.stringify(st));
   for (const w of achadosAgora) {
     const ch = await client.channels.fetch(AVISO_4L_CANAL).catch(() => null);
-    if (ch) await ch.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+    if (ch) await whSend(ch, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
       { type: 10, content: '# 4L LIVRE ACABOU DE APARECER' },
       { type: 10, content: '**' + w + '** — corre la e pega antes que outro bot snipe.' },
-    ]}] }).catch((e) => err(e));
+    ]}] });
   }
   log('VIGIA_4L', { tick: st.tick, livres: st.livres.length, novos: achadosAgora.length });
 }
