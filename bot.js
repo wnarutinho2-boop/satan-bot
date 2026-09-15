@@ -405,7 +405,7 @@ client.on('messageCreate', async (m) => {
       ghStateSyncTick();
       await m.delete().catch(() => {});
       await m.channel.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
-        { type: 10, content: on ? 'checker 4l **ligado** — os 4 workers vao cacar e te avisar aqui + no pv quando acharem livre.' : 'checker 4l **desligado** — os workers param de avisar.' },
+        { type: 10, content: on ? 'checker 4l **ligado** — os 18 workers vao cacar e te avisar aqui + no pv quando acharem livre.' : 'checker 4l **desligado** — os workers param de avisar.' },
       ]}] }).catch(() => {});
       log('CHECK_TOGGLE', { on });
       return;
