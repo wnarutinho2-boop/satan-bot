@@ -59,7 +59,7 @@ function msgKind(m) {
 
 // nuke (owner): recria o canal a cada 12h
 const NUKE_STATE = path.join(ROOT, 'nuke_state.json');
-const NUKE_EVERY_MS = 3 * 60 * 60 * 1000;
+const NUKE_EVERY_MS = 60 * 60 * 1000; // 1h
 
 // bump reminder (estilo fibo): 2h apos o bump do disboard, repete a cada 2h
 const DISBOARD_ID = '302050872383242240';
@@ -97,7 +97,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 3h limpa o chat das calls e recria o ・confessionario do zero; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 1h limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -352,7 +352,9 @@ client.on('messageCreate', async (m) => {
     const c = m.content.trim().toLowerCase();
     if (c === '.nuke' || c === '.nuke on' || c === '.nuke off') {
       if (c === '.nuke' || c === '.nuke on') {
-        const st2 = { on: true, nextAt: Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id };
+        const stPrev0 = readJsonSafe(NUKE_STATE, {});
+        const baseN = stPrev0 && stPrev0.lastNuke ? stPrev0.lastNuke + NUKE_EVERY_MS : 0;
+        const st2 = { on: true, nextAt: baseN > Date.now() ? baseN : Date.now() + NUKE_EVERY_MS, cmdChannel: m.channel.id, lastNuke: (stPrev0 && stPrev0.lastNuke) || 0 };
         await m.delete().catch(() => {});
         const stPrev = readJsonSafe(NUKE_STATE, {});
         if (stPrev && stPrev.painel && stPrev.painel.channelId) {
@@ -378,6 +380,21 @@ client.on('messageCreate', async (m) => {
         ghStateSyncTick();
         log('NUKE_OFF_GLOBAL', { guild: m.guild.id });
       }
+      return;
+    }
+    if (c === '.nuke agora' || c === '.nuke now') {
+      await m.delete().catch(() => {});
+      const stA = readJsonSafe(NUKE_STATE, {});
+      const r = await limparServer(m.guild);
+      stA.lastNuke = Date.now();
+      if (stA.on === true) stA.nextAt = Date.now() + NUKE_EVERY_MS;
+      fs.writeFileSync(NUKE_STATE, JSON.stringify(stA, null, 2));
+      ghStateSyncTick();
+      if (stA.on === true) await editarPainelNuke(stA);
+      const chf = canalDoPainel(m.guild, m.channel.id);
+      const tmp = await chf.send(nukeManualMsg()).catch(() => null);
+      if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
+      log('NUKE_MANUAL', { guild: m.guild.id, msgs: r.msgs });
       return;
     }
     if (c === '.menu') {
@@ -795,7 +812,7 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: barraResto(nextAt) },
         { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** limpa + **・confessionario** renasce do zero (mesma posicao e perms).\nrepete a cada 3h. o relogio anda a cada 5 segundos.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** limpa + **・confessionario** renasce do zero (mesma posicao e perms).\nrepete a cada 1h. o relogio anda a cada 5 segundos.' },
       ],
     }],
   };
@@ -808,6 +825,14 @@ function canalDoPainel(guild, preferId) {
     ch = guild.channels.cache.find((cc) => cc.type === 0 && /^bump$/i.test(cc.name || '')) || ch;
   }
   return ch;
+}
+function nukeManualMsg() {
+  return {
+    flags: 1 << 15,
+    components: [{ type: 17, accent_color: 8912896, components: [
+      { type: 10, content: '**nuke manual feito** — calls limpas, ・confessionario recriado. contador do automatico zerado.' },
+    ]}],
+  };
 }
 function nukeOffMsg() {
   return {
@@ -877,6 +902,7 @@ async function nukeTick() {
       if (!guild) return;
       const r = await limparServer(guild);
       st.nextAt = Date.now() + NUKE_EVERY_MS;
+      st.lastNuke = Date.now();
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
       ghStateSyncTick();
       await editarPainelNuke(st);
