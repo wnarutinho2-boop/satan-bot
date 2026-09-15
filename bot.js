@@ -114,18 +114,20 @@ function mentionsOf(t) {
 function bumpMsg(target) {
   return {
     flags: 1 << 15,
+    content: mentionsOf(target), // @ pingando (discord mostra acima do card, unica forma de notificar)
     components: [
       {
         type: 17,
         accent_color: 8912896,
         components: [
-          { type: 10, content: `${mentionsOf(target)} hora do bump — o disboard tá liberado de novo.` },
+          { type: 10, content: '# ESCREVA /bump E ENVIE NESSE CANAL' },
+          { type: 10, content: 'o disboard tá liberado de novo.' },
         ],
       },
     ],
   };
 }
-function bumpAvisoMsg(target) {
+function bumpAvisoMsg() {
   return {
     flags: 1 << 15,
     components: [
@@ -133,7 +135,7 @@ function bumpAvisoMsg(target) {
         type: 17,
         accent_color: 8912896,
         components: [
-          { type: 10, content: `Bump registrado. ${mentionsOf(target)} — vou marcar aqui daqui a 2 horas pra bumpar de novo.` },
+          { type: 10, content: 'vou marcar vocês pra dar bump daqui a duas horas :)' },
         ],
       },
     ],
@@ -321,7 +323,7 @@ client.on('messageCreate', async (m) => {
       const target = st.target || null;
       st[m.channelId] = { nextAt: Date.now() + BUMP_EVERY_MS, lastBumper: bumper };
       fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-      await m.channel.send(bumpAvisoMsg(target)).catch((e) => err(e));
+      await m.channel.send(bumpAvisoMsg()).catch((e) => err(e));
       log('BUMP_DETECTADO', { channel: m.channelId, bumper, target });
     }
     return;
