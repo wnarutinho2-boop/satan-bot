@@ -35,6 +35,7 @@ const MUTE_STATE = path.join(ROOT, 'mute_state.json');
 const MUTE_BASE_MS = 60 * 60 * 1000;
 const REP_MUTE_QTD = 10;
 const repStreak = new Map(); // userId -> { sig, count }
+const emoStreak = new Map(); // userId -> qtd seguida de msgs so de emoji
 const linkBuf = new Map();   // userId -> [timestamps de links]
 const RE_LINK = /(https?:\/\/|discord\.gg\/|discord\.com\/invite|discordapp\.com\/)/i;
 
@@ -589,6 +590,20 @@ async function varrerLinks() {
       repStreak.set(m.author.id, streak);
       if (streak.count > REP_MUTE_QTD) await aplicarCastigo(m, 'repetir a mesma mensagem 10+ vezes');
     }
+
+    // 5b) 5+ mensagens seguidas so de emoji -> castigo progressivo
+    {
+      const txt = (m.content || '').trim();
+      const soEmoji = txt.length > 0 && /^[\p{Extended_Pictographic}\p{Emoji_Component}\u200d\ufe0f\s]+$/u.test(txt);
+      if (soEmoji) {
+        const q = (emoStreak.get(m.author.id) || 0) + 1;
+        emoStreak.set(m.author.id, q);
+        if (q >= 5) await aplicarCastigo(m, 'chuva de emojis');
+      } else {
+        emoStreak.delete(m.author.id);
+      }
+    }
+
 
     // 6) chuva de link: 10+ links em 10 minutos -> castigo progressivo
     if (RE_LINK.test(m.content || '')) {
