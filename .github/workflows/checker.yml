@@ -1,0 +1,24 @@
+name: checker4l
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 */6 * * *'   # religa os workers a cada 6h (job max = 6h)
+concurrency:
+  group: checker-${{ matrix.worker }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [1, 2, 3, 4]   # 4 IPs paralelos; cada um varre 1/4 das 4l
+    steps:
+      - uses: actions/checkout@v4
+      - name: checker
+        run: python3 checker.py
+        env:
+          WORKER: ${{ matrix.worker }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
