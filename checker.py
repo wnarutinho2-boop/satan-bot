@@ -50,10 +50,15 @@ def prox():
     _i[0] += 1
     return PROXIES[_i[0] % len(PROXIES)]
 
+# ordem EMBARALHADA (passo coprimo): nomes saem misturados tipo 8j2a/sw29/xh7s,
+# ainda cobre 100% do espaco sem repeticao entre workers
+M4 = TOTAL4 // WORKERS
+S4 = 53113  # impar, nao divisivel por 3 -> coprimo com 93312
+MSE = TOTAL_SEMI // WORKERS
+SSE = 9625  # coprimo com 15552
+
 def idx4_nome(k):
-    idx = (WORKER - 1) + WORKERS * k
-    if idx >= TOTAL4:
-        return None
+    idx = (WORKER - 1) + WORKERS * ((k * S4) % M4)
     c = []
     for _ in range(4):
         c.append(A36[idx % 36])
@@ -61,9 +66,7 @@ def idx4_nome(k):
     return ''.join(reversed(c))
 
 def idxsemi_nome(k):
-    idx = (WORKER - 1) + WORKERS * k
-    if idx >= TOTAL_SEMI:
-        return None
+    idx = (WORKER - 1) + WORKERS * ((k * SSE) % MSE)
     base = idx % (36 ** 3)
     resto = idx // (36 ** 3)         # 0..5 = pos(0..2)*2 + sep
     pos, si = resto // 2, resto % 2
