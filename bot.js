@@ -1090,7 +1090,8 @@ async function caca4lPadroes() {
     'semi3c': () => { const a = r(L) + r(D) + r(L); const p = 1 + Math.floor(Math.random() * 2); return a.slice(0, p) + r(S) + a.slice(p); },
     'semi4n': () => { const a = r(D) + r(D) + r(D) + r(D); const p = 1 + Math.floor(Math.random() * 3); return a.slice(0, p) + r(S) + a.slice(p); },
   };
-  const out = { done: false, achados: {}, tentadas: 0, inicio: Date.now() };
+  const out = { done: false, achados: {}, tentadas: 0, erros: 0, inicio: Date.now() };
+  fs.writeFileSync(HUNT4L, JSON.stringify(out));
   for (const [nome, gen] of Object.entries(pats)) {
     const ach = []; let tries = 0; const vistas = new Set();
     while (tries < 100 && ach.length < 3) {
@@ -1102,6 +1103,7 @@ async function caca4lPadroes() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
           body: JSON.stringify({ username: w }),
+          signal: AbortSignal.timeout(8000),
         });
         if (res.status === 429) {
           const j = await res.json().catch(() => null);
@@ -1112,7 +1114,7 @@ async function caca4lPadroes() {
         }
         const j = await res.json().catch(() => null);
         if (j && j.taken === false) ach.push(w);
-      } catch (e) { /* rede */ }
+      } catch (e) { out.erros++; }
       await new Promise((r2) => setTimeout(r2, 300));
     }
     out.achados[nome] = ach;
