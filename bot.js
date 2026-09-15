@@ -99,7 +99,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo\n**.4l** — caça nick de 4 letras disponivel no discord' },
         ],
       },
     ],
@@ -397,6 +397,44 @@ client.on('messageCreate', async (m) => {
       const tmp = await chf.send(nukeManualMsg()).catch(() => null);
       if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
       log('NUKE_MANUAL', { guild: m.guild.id, msgs: r.msgs });
+      return;
+    }
+    if (c === '.4l' || c.startsWith('.4l ')) {
+      await m.delete().catch(() => {});
+      const args = c.slice(4).trim().split(/[\s,]+/).filter((w) => w).slice(0, 10);
+      const tmp = await m.channel.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+        { type: 10, content: args.length ? 'consultando o discord sobre esses nicks...' : 'cacando 4l disponivel (ate 60 tentativas)...' },
+      ]}] }).catch(() => null);
+      const rd = (x) => x[Math.floor(Math.random() * x.length)];
+      const conso = 'vkzxqjwrlmntchdbsgy', vog = 'aeiouy';
+      const fila = args.length ? args : Array.from({ length: 60 }, () => rd(conso) + rd(vog) + rd(conso) + rd(vog));
+      const livres = []; const tomadas = [];
+      for (const wRaw of fila) {
+        const w = wRaw.toLowerCase();
+        if (!/^[a-z0-9._]{2,32}$/.test(w)) continue;
+        try {
+          const res = await fetch('https://discord.com/api/v9/unique-username/username-attempt-unauthed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            body: JSON.stringify({ username: w }),
+          });
+          if (res.status === 429) { tomadas.push(w + '(limite)'); await new Promise((r2) => setTimeout(r2, 2000)); continue; }
+          const j = await res.json().catch(() => null);
+          if (j && j.taken === false) livres.push(w); else tomadas.push(w);
+        } catch (e) { /* rede */ }
+        await new Promise((r2) => setTimeout(r2, 350));
+      }
+      let corpo;
+      if (args.length) {
+        corpo = livres.length ? 'livre(s): **' + livres.join('** · **') + '**' : 'todos esses ja tao tomados: ' + tomadas.join(', ');
+      } else {
+        corpo = livres.length ? '4l livres pra pegar:\n**' + livres.join('** · **') + '**' : 'nenhum 4l livre nessas 60 tentativas — 4l puro ta praticamente esgotado no discord. usa .4l nome1 nome2 pra eu consultar nomes que vc escolher.';
+      }
+      if (tmp) await tmp.edit({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+        { type: 10, content: '# consulta 4l' },
+        { type: 10, content: corpo },
+      ]}] }).catch(() => {});
+      log('CONSULTA_4L', { livres: livres.length, tentadas: fila.length });
       return;
     }
     if (c === '.menu') {
@@ -1019,8 +1057,10 @@ async function bumpTick() {
       if (info && now >= info.nextAt) {
         const ch = await client.channels.fetch(cid).catch(() => null);
         if (!ch) { delete st[cid]; fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2)); continue; }
-        await ch.send(bumpMsg()).catch((e) => err(e));
-        await ch.send({ content: mentionsOf(st.target) }).catch((e) => err(e)); // @ logo abaixo do card, pingando
+        await ch.send({
+          content: mentionsOf(st.target), // @ pingando (unica parte que notifica)
+          embeds: [{ title: 'ESCREVA /bump E ENVIE NESSE CANAL', description: 'o disboard tá liberado de novo.', color: 8912896 }],
+        }).catch((e) => err(e));
         delete st[cid]; // lembrete uma vez por bump; so avisa de novo com bump novo
         fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
         log('BUMP_LEMBRETE', { channel: cid });
