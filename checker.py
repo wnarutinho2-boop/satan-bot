@@ -8,12 +8,17 @@ REPO = os.environ.get('GITHUB_REPOSITORY', 'wnarutinho2-boop/satan-bot')
 OWNER = '1521612392105250836'
 CANAL_AVISO = '1548910505500868709'  # adm
 WORKER = int(os.environ.get('WORKER', '1'))
+WORKERS = 18
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 
 L = 'abcdefghijklmnopqrstuvwxyz'
 D = '0123456789'
 S = '._'
-MINHAS_LETRAS = {1: 'abcdefg', 2: 'hijklmn', 3: 'opqrst', 4: 'uvwxyz'}.get(WORKER, L)
+def gen4l_fatia():
+    # fatia deterministica: prefixo (2 primeiras letras) com resto fixo por worker -> zero sobreposicao
+    base = random.randrange(676)
+    p = (base // WORKERS) * WORKERS + (WORKER - 1)
+    return L[p // 26] + L[p % 26] + random.choice(L) + random.choice(L)
 
 def curl(args, data=None):
     cmd = ['curl', '-sS'] + args
@@ -37,15 +42,15 @@ def checa(w):
 
 def gen():
     r = random.random()
-    if r < 0.45:  # 4c (o que os checkers tao achando: numero+letra)
+    if r < 0.50:  # 4l: varre a fatia exclusiva do worker
+        return gen4l_fatia()
+    if r < 0.92:  # 4c (o que os checkers tao achando: numero+letra)
         return random.choice([
             random.choice(D) + random.choice(L) + random.choice(D) + random.choice(D),
             random.choice(D) + random.choice(L) + random.choice(D) + random.choice(L),
             random.choice(L) + random.choice(D) + random.choice(D) + random.choice(L),
             random.choice(D) + random.choice(D) + random.choice(L) + random.choice(D),
         ])
-    if r < 0.80:  # 4l varrendo o espaco do worker
-        return random.choice(MINHAS_LETRAS) + random.choice(L) + random.choice(L) + random.choice(L)
     a = random.choice(L) + random.choice(L) + random.choice(L)
     p = random.randint(1, 2)
     return a[:p] + random.choice(S) + a[p:]  # semi 4
@@ -97,7 +102,7 @@ def salva_hit(w, total):
           **({'sha': sha} if sha else {})})
 
 def main():
-    print(f'[worker {WORKER}] letras 4l: {MINHAS_LETRAS}', flush=True)
+    print(f'[worker {WORKER}/{WORKERS}] fatia 4l exclusiva + 4c aleatorio', flush=True)
     inicio = time.time()
     checks = 0
     visto = set()
