@@ -300,7 +300,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json', 'check_state.json', 'nuke_log.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json', 'check_state.json', 'nuke_log.json', 'caca4c_log.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -498,7 +498,8 @@ client.on('messageCreate', async (m) => {
       const AL36 = 'abcdefghijklmnopqrstuvwxyz0123456789';
       const gen4c = () => { let w; do { w = rd(AL36) + rd(AL36) + rd(AL36) + rd(AL36); } while (!/\d/.test(w) || !/[a-z]/.test(w)); return w; };
       const livres = []; const testados = [];
-      let checadas = 0; let ultimoEdit = Date.now(); let delay = 500; let limpos = 0;
+      let checadas = 0; let ultimoEdit = Date.now(); let delay = 500; let limpos = 0; let rls = 0; let ultimoLog = Date.now();
+      const clog = () => { try { fs.writeFileSync(path.join(ROOT, 'caca4c_log.json'), JSON.stringify({ quando: new Date().toISOString(), checadas, rls, delayMs: Math.round(delay), viva: infinito ? cacaAtiva : true, livres: livres.length })); ghStateSyncTick(); } catch (e) {} };
       const infinito = !args.length;
       if (infinito) cacaAtiva = true;
       const tmp = await whSend(m.channel, painel4c(0, infinito ? null : args.length, livres, [], true)).catch(() => null);
@@ -513,6 +514,7 @@ client.on('messageCreate', async (m) => {
             body: JSON.stringify({ username: w }),
           });
           if (res.status === 429) {
+            rls++;
             delay = Math.min(delay * 1.5, 30000); // adapta: sobe o ritmo sem nunca parar
             limpos = 0;
             await new Promise((r2) => setTimeout(r2, delay));
@@ -531,9 +533,11 @@ client.on('messageCreate', async (m) => {
           await whEdit(m.channel, tmp.id, painel4c(checadas, infinito ? null : args.length, livres, testados, true)).catch(() => {});
           ultimoEdit = Date.now();
         }
+        if (Date.now() - ultimoLog > 15000) { clog(); ultimoLog = Date.now(); }
         await new Promise((r2) => setTimeout(r2, delay));
       }
       if (infinito) cacaAtiva = false;
+      clog();
       if (tmp) await whEdit(m.channel, tmp.id, painel4c(checadas, infinito ? null : args.length, livres, testados, false)).catch(() => {});
       log('CONSULTA_4C', { livres: livres.length, checadas });
       return;
