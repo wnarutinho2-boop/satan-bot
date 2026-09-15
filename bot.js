@@ -397,6 +397,7 @@ client.on('messageCreate', async (m) => {
       const chf = canalDoPainel(m.guild, m.channel.id);
       const tmp = await chf.send(nukeManualMsg()).catch(() => null);
       if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
+      await anunciarNuke(m.guild);
       log('NUKE_MANUAL', { guild: m.guild.id, msgs: r.msgs });
       return;
     }
@@ -878,6 +879,19 @@ function canalDoPainel(guild, preferId) {
   }
   return ch;
 }
+function nukeAnuncioMsg() {
+  return {
+    flags: 1 << 15,
+    components: [{ type: 17, accent_color: 8912896, components: [
+      { type: 10, content: '# as portas do inferno foram abertas' },
+      { type: 10, content: 'o nuke passou: calls limpas, ・confessionario renascido.' },
+    ]}],
+  };
+}
+async function anunciarNuke(guild) {
+  const ch = guild.channels.cache.find((c) => c.type === 0 && /inferno/i.test(c.name || ''));
+  if (ch) await ch.send(nukeAnuncioMsg()).catch((e) => err(e));
+}
 function nukeManualMsg() {
   return {
     flags: 1 << 15,
@@ -958,6 +972,7 @@ async function nukeTick() {
       fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2));
       ghStateSyncTick();
       await editarPainelNuke(st);
+      await anunciarNuke(guild);
       log('NUKE_AUTO_GLOBAL', { guild: guild.id, msgs: r.msgs, nextAt: st.nextAt });
     }
   } catch (e) { err(e); }
