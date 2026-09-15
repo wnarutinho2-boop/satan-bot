@@ -24,8 +24,11 @@ def curl(args, data=None):
     cmd = ['curl', '-sS'] + args
     if data is not None:
         cmd += ['-H', 'Content-Type: application/json', '-d', json.dumps(data)]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    return r.stdout
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return r.stdout
+    except Exception:
+        return ''
 
 def checa(w):
     out = curl(['-X', 'POST', 'https://discord.com/api/v9/unique-username/username-attempt-unauthed',
@@ -109,28 +112,32 @@ def main():
     ultimo_estado = 0.0
     ligado = True
     while time.time() - inicio < 5.7 * 3600:  # para antes do limite de 6h do job
-        if time.time() - ultimo_estado > 300:
-            ligado = estado_on()
-            ultimo_estado = time.time()
-        if not ligado:
-            time.sleep(30)
-            continue
-        w = gen()
-        if w in visto:
-            continue
-        visto.add(w)
-        st, ra = checa(w)
-        checks += 1
-        if st == 'livre':
-            print(f'[HIT] {w}', flush=True)
-            avisa(w)
-            salva_hit(w, checks)
-        elif st == 'rl':
-            espera = min(float(ra or 60), 900)
-            print(f'[rl] espera {espera:.0f}s', flush=True)
-            time.sleep(espera)
-            continue
-        time.sleep(0.7)
+        try:
+            if time.time() - ultimo_estado > 300:
+                ligado = estado_on()
+                ultimo_estado = time.time()
+            if not ligado:
+                time.sleep(30)
+                continue
+            w = gen()
+            if w in visto:
+                continue
+            visto.add(w)
+            st, ra = checa(w)
+            checks += 1
+            if st == 'livre':
+                print(f'[HIT] {w}', flush=True)
+                avisa(w)
+                salva_hit(w, checks)
+            elif st == 'rl':
+                espera = min(float(ra or 60), 900)
+                print(f'[rl] espera {espera:.0f}s', flush=True)
+                time.sleep(espera)
+                continue
+            time.sleep(0.7)
+        except Exception as e:
+            print('[err]', type(e).__name__, flush=True)
+            time.sleep(2)
     print(f'[worker {WORKER}] fim. checks={checks}', flush=True)
 
 main()
