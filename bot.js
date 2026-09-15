@@ -480,25 +480,33 @@ client.on('messageCreate', async (m) => {
       await m.delete().catch(() => {});
       const args = c.slice(4).trim().split(/[\s,]+/).filter((w) => w).slice(0, 10);
       const rd = (x) => x[Math.floor(Math.random() * x.length)];
-      const conso = 'vkzxqjwrlmntchdbsgy', vog = 'aeiouy';
-      const fila = args.length ? args : Array.from({ length: 60 }, () => rd(conso) + rd(vog) + rd(conso) + rd(vog));
+      const L4 = 'abcdefghijklmnopqrstuvwxyz', D4 = '0123456789';
+      const gen4c = () => { let w; do { w = rd(L4 + D4) + rd(L4 + D4) + rd(L4 + D4) + rd(L4 + D4); } while (!/\d/.test(w) || !/[a-z]/.test(w)); return w; };
+      const fila = args.length ? args : Array.from({ length: 60 }, gen4c);
       const livres = []; const tomadas = [];
       const tmp = await whSend(m.channel, painel4l(0, fila.length, livres, tomadas, null, true)).catch(() => null);
-      let checadas = 0; let ultimoEdit = Date.now();
-      for (const wRaw of fila) {
-        const w = wRaw.toLowerCase();
-        if (!/^[a-z0-9._]{2,32}$/.test(w)) continue;
+      let checadas = 0; let ultimoEdit = Date.now(); let i = 0; let rlSeguidos = 0;
+      while (i < fila.length) {
+        const w = String(fila[i]).toLowerCase();
+        if (!/^[a-z0-9._]{2,32}$/.test(w)) { i++; continue; }
         try {
           const res = await fetch('https://discord.com/api/v9/unique-username/username-attempt-unauthed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
             body: JSON.stringify({ username: w }),
           });
-          if (res.status === 429) { tomadas.push(w); await new Promise((r2) => setTimeout(r2, 2000)); continue; }
+          if (res.status === 429) {
+            rlSeguidos++;
+            if (rlSeguidos > 4) break; // limite duro do discord: encerra sem morrer no meio
+            await new Promise((r2) => setTimeout(r2, 8000));
+            continue; // re-tenta o MESMO nome, nao pula
+          }
+          rlSeguidos = 0;
           const j = await res.json().catch(() => null);
           if (j && j.taken === false) livres.push(w); else tomadas.push(w);
         } catch (e) { /* rede */ }
         checadas++;
+        i++;
         if (tmp && Date.now() - ultimoEdit > 1500) {
           await whEdit(m.channel, tmp.id, painel4l(checadas, fila.length, livres, tomadas, w, true)).catch(() => {});
           ultimoEdit = Date.now();
@@ -1228,12 +1236,12 @@ async function vigiaNicks() {
   const L = 'abcdefghijklmnopqrstuvwxyz', D = '0123456789', S = '._';
   const r = (x) => x[Math.floor(Math.random() * x.length)];
   const gens = [
-    () => r(L) + r(L) + r(L) + r(L),                                   // 4l
     () => r(L) + r(D) + r(L) + r(D),                                   // 4c alternado
     () => r(D) + r(L) + r(L) + r(D),                                   // 4c capsula
-    () => r(D) + r(D) + r(D) + r(D),                                   // 4n
-    () => r(L) + r(S) + r(L) + r(L),                                   // semi l.ll
-    () => r(L) + r(L) + r(S) + r(L),                                   // semi ll.l
+    () => r(D) + r(L) + r(D) + r(D),                                   // 4c
+    () => r(L) + r(L) + r(D) + r(D),                                   // 4c
+    () => r(D) + r(D) + r(L) + r(L),                                   // 4c
+    () => { let w; do { w = r(L + D) + r(L + D) + r(L + D) + r(L + D); } while (!/\d/.test(w) || !/[a-z]/.test(w)); return w; }, // 4c livre
   ];
   const gen = gens[st.tick % gens.length];
   const achadosAgora = [];
