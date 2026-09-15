@@ -223,6 +223,10 @@ async function whSend(ch, payload) {
   const wh = await getWebhook(ch);
   return wh.send(payload);
 }
+async function whEdit(ch, messageId, payload) {
+  const wh = await getWebhook(ch);
+  return wh.editMessage(messageId, payload);
+}
 
 const client = new Client({
   intents: [
@@ -489,7 +493,7 @@ client.on('messageCreate', async (m) => {
       } else {
         corpo = livres.length ? '4l livres pra pegar:\n**' + livres.join('** · **') + '**' : 'nenhum 4l livre nessas 60 tentativas — 4l puro ta praticamente esgotado no discord. usa .4l nome1 nome2 pra eu consultar nomes que vc escolher.';
       }
-      if (tmp) await tmp.edit({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+      if (tmp) await whEdit(m.channel, tmp.id, { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
         { type: 10, content: '# consulta 4l' },
         { type: 10, content: corpo },
       ]}] }).catch(() => {});
@@ -602,7 +606,7 @@ client.on('messageCreate', async (m) => {
           st.lines.push('erro (' + (s.name || s.url).slice(0, 30) + '): ' + String(e.message).slice(0, 90));
           err(e);
         }
-        await m.channel.messages.fetch(st.msgId).then((p) => p.edit(figPanel(st))).catch(() => {});
+        await whEdit(m.channel, st.msgId, figPanel(st)).catch(() => {});
       }
       return;
     }
@@ -805,7 +809,7 @@ client.on('interactionCreate', async (i) => {
     const st = figState.get(i.guild.id);
     figState.delete(i.guild.id);
     const fim = i.customId === 'fig_done' ? 'concluido' : 'cancelado';
-    if (st) await i.channel.messages.fetch(st.msgId).then((p) => p.edit(figPanel(st, fim))).catch(() => {});
+    if (st) await whEdit(i.channel, st.msgId, figPanel(st, fim)).catch(() => {});
     log('FIG_FIM', { guild: i.guild.id, fim, itens: st ? st.lines.length : 0 });
     return;
   }
@@ -822,7 +826,7 @@ client.on('interactionCreate', async (i) => {
     if (i.customId === 'bump_sel_user') for (const id of ids) if (!st.target.users.includes(id)) st.target.users.push(id);
     else for (const id of ids) if (!st.target.roles.includes(id)) st.target.roles.push(id);
     fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-    await i.message.edit(bumpPanel(st)).catch(() => {});
+    await whEdit(i.channel, i.message.id, bumpPanel(st)).catch(() => {});
     log('BUMP_PAINEL', { custom: i.customId, ids, target: st.target });
     return;
   }
@@ -841,7 +845,7 @@ client.on('interactionCreate', async (i) => {
     if (i.customId === 'bump_self') { if (!st.target.users.includes(OWNER_ID)) st.target.users.push(OWNER_ID); }
     else st.target = { users: [], roles: [] };
     fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
-    await i.message.edit(bumpPanel(st)).catch(() => {});
+    await whEdit(i.channel, i.message.id, bumpPanel(st)).catch(() => {});
     log('BUMP_PAINEL', { custom: i.customId, target: st.target });
     return;
   }
@@ -1089,7 +1093,12 @@ async function garantirPainelNuke(st) {
     const ch = await client.channels.fetch(st.painel.channelId).catch(() => null);
     if (!ch) return;
     const msg = await ch.messages.fetch(st.painel.messageId).catch(() => null);
-    if (!msg) {
+    if (msg) {
+      const ok = await whEdit(ch, st.painel.messageId, nukePainelMsg(st.nextAt)).then(() => true).catch(() => false);
+      if (ok) return;
+      await ch.messages.delete(st.painel.messageId).catch(() => {});
+    }
+    {
       const pm = await whSend(ch, nukePainelMsg(st.nextAt)).catch(() => null);
       if (pm) { st.painel.messageId = pm.id; fs.writeFileSync(NUKE_STATE, JSON.stringify(st, null, 2)); }
     }
@@ -1101,8 +1110,7 @@ async function editarPainelNuke(st) {
     if (!st || !st.painel || !st.painel.channelId) return;
     const ch = await client.channels.fetch(st.painel.channelId).catch(() => null);
     if (!ch) return;
-    const msg = await ch.messages.fetch(st.painel.messageId).catch(() => null);
-    if (msg) await msg.edit(nukePainelMsg(st.nextAt)).catch(() => {});
+    await whEdit(ch, st.painel.messageId, nukePainelMsg(st.nextAt)).catch(() => {});
   } catch (e) { err(e); }
 }
 // lembrete de bump: a cada 2h desde o ultimo bump, repete ate bumpar de novo
