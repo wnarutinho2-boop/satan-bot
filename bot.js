@@ -253,7 +253,8 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'antiflood_log.json'];
+const ANTIFLOOD_LOG = path.join(ROOT, 'antiflood_log.json');
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -626,6 +627,12 @@ async function varrerLinks() {
 
     if (reasons.length && m.deletable) {
       await m.delete().catch(() => {});
+      try {
+        const L = readJsonSafe(ANTIFLOOD_LOG, []);
+        L.push({ ts: now, name: m.author.username, reason: reasons.join('+'), txt: (m.content || '').slice(0, 120) });
+        while (L.length > 60) L.shift();
+        fs.writeFileSync(ANTIFLOOD_LOG, JSON.stringify(L));
+      } catch (e) { err(e); }
       log('ANTIFLOOD', { reason: reasons.join('+'), kind: msgKind(m), author: m.author.id, channel: m.channelId, len: m.content.length });
     }
   } catch (e) {
