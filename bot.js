@@ -550,6 +550,16 @@ async function varrerLinks() {
     // 1.5) qualquer link / convite de server morre na hora
     if (RE_LINK.test(m.content)) reasons.push('link');
 
+    // 1.7) mensagem invisivel (so espacos/zero-width/tags unicode): apaga na hora; grande = castigo
+    {
+      const bruto = m.content || '';
+      const visivel = bruto.replace(/[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2800\u3164\ufeff\ufe00-\ufe0f\ufff0-\ufff8\ufffe\uffff\ue0000-\ue007f]/gu, '');
+      if (bruto.length > 0 && visivel.length === 0) {
+        reasons.push('invisivel');
+        if (bruto.length > 30) await aplicarCastigo(m, 'spam de caracteres invisiveis');
+      }
+    }
+
     // 2) mensagem repetida: compara com as 3 últimas do mesmo autor (pega
     //    "emoji, emoji" e tambem "emoji1, emoji2, emoji1" alternado)
     //    assinatura cobre texto, emoji, figurinha, imagem/gif, arquivo e embed
