@@ -3,12 +3,12 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '10 */6 * * *'   # religa os workers a cada 6h (job max = 6h)
-concurrency:
-  group: checker-${{ matrix.worker }}
-  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-latest
+    concurrency:
+      group: checker-${{ matrix.worker }}
+      cancel-in-progress: true
     timeout-minutes: 355
     strategy:
       fail-fast: false
