@@ -99,7 +99,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo\n**.4l** — caça nick de 4 letras disponivel no discord' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo\n**.4l** — caça nick de 4 letras disponivel no discord\n**.check on / .check off** — liga/desliga a caca 4l dos workers (avisa no canal + pv)' },
         ],
       },
     ],
@@ -255,7 +255,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json', 'check_state.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -397,6 +397,17 @@ client.on('messageCreate', async (m) => {
       const tmp = await chf.send(nukeManualMsg()).catch(() => null);
       if (tmp) setTimeout(() => tmp.delete().catch(() => {}), 15000);
       log('NUKE_MANUAL', { guild: m.guild.id, msgs: r.msgs });
+      return;
+    }
+    if (c === '.check on' || c === '.check off') {
+      const on = c.endsWith('on');
+      fs.writeFileSync(path.join(ROOT, 'check_state.json'), JSON.stringify({ on }, null, 2));
+      ghStateSyncTick();
+      await m.delete().catch(() => {});
+      await m.channel.send({ flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: [
+        { type: 10, content: on ? 'checker 4l **ligado** — os 4 workers vao cacar e te avisar aqui + no pv quando acharem livre.' : 'checker 4l **desligado** — os workers param de avisar.' },
+      ]}] }).catch(() => {});
+      log('CHECK_TOGGLE', { on });
       return;
     }
     if (c === '.4l' || c.startsWith('.4l ')) {
