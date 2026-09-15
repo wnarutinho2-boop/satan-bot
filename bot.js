@@ -24,6 +24,8 @@ const ERRORS = path.join(ROOT, 'errors.log');
 fs.mkdirSync(OUT, { recursive: true });
 
 // anti-flood (ajustavel via antispam_config.json)
+// formatacao markdown do discord: so texto puro e permitido
+const RE_FMT = /(\*\*[\s\S]+?\*\*|\*[^*\n]+\*|__[\s\S]+?__|_[^_\n]+_|~~[\s\S]+?~~|\|\|[\s\S]+?\|\||`+[\s\S]+?`+)|^#{1,3}\s|^>\s?|^[-*+]\s|^\d+[.)]\s/m;
 const ANTIFLOOD_CFG = path.join(ROOT, 'antispam_config.json');
 const ANTIFLOOD_DEFAULT = { chars: 500, windowMs: 6000, max: 5, penaltyMs: 10000, repeatWindowMs: 30000 };
 const floodBuf = new Map();
@@ -97,7 +99,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 3h limpa o chat das calls e recria o ・confessionario do zero; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 3h limpa o chat das calls e recria o ・confessionario do zero; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**texto puro obrigatorio** — *italico*, **negrito**, __sublinhado__, ~~riscado~~, ||spoiler||, \`codigo\`, > citacao, # titulo e listas sao apagados na hora\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -549,6 +551,9 @@ async function varrerLinks() {
 
     // 1.5) qualquer link / convite de server morre na hora
     if (RE_LINK.test(m.content)) reasons.push('link');
+
+    // 1.8) formatacao markdown (*italico* **negrito** ```codigo``` >cita #titulo -lista): so texto puro
+    if (RE_FMT.test(m.content || '')) reasons.push('formatado');
 
     // 1.7) mensagem invisivel (so espacos/zero-width/tags unicode): apaga na hora; grande = castigo
     {
