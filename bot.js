@@ -100,7 +100,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo\n**.4l** — caça nick de 4 letras disponivel no discord\n**.check on / .check off** — liga/desliga a caca 4l dos workers (avisa no canal + pv)' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 20min limpa o chat das calls e recria o ・confessionario do zero; **.nuke agora** faz na hora; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo\n**.4c** — painel ao vivo cacando nick 4c disponivel\n**.check on / .check off** — liga/desliga a caca 4l dos workers (avisa no canal + pv)' },
         ],
       },
     ],
@@ -108,14 +108,14 @@ function menuMsg() {
 }
 
 // painel vivo do .4l: checagem em tempo real, livres e tomados
-function painel4l(checadas, total, livres, tomadas, atual, vivo) {
+function painel4c(checadas, total, livres, testados, vivo) {
   const comp = [
-    { type: 10, content: '# cacada 4l' + (vivo ? ' — ao vivo' : ' — fim') },
-    { type: 10, content: 'checadas **' + checadas + '** de **' + total + '**' + (atual ? ' — agora: **' + atual + '**' : '') },
+    { type: 10, content: '# cacada 4c' + (vivo ? ' — ao vivo' : ' — fim') },
+    { type: 10, content: 'checadas **' + checadas + '** de **' + total + '**' },
     { type: 14, spacing: 1, divider: true },
     { type: 10, content: livres.length ? '**LIVRES PRA PEGAR:**\n' + livres.map((w) => '> **' + w + '**').join('\n') : '**LIVRES PRA PEGAR:** nenhum ainda' },
     { type: 14, spacing: 1, divider: false },
-    { type: 10, content: '**ja tomados (ultimos 14):** ' + (tomadas.slice(-14).join(' · ') || '—') },
+    { type: 10, content: '**testando agora:**\n' + (testados.slice(-9).map((t) => t.livre ? t.w + ' — **LIVRE**' : t.w + ' — tomado').join('\n') || '...') },
   ];
   return { flags: 1 << 15, components: [{ type: 17, accent_color: 8912896, components: comp }] };
 }
@@ -476,15 +476,15 @@ client.on('messageCreate', async (m) => {
       log('CHECK_TOGGLE', { on });
       return;
     }
-    if (c === '.4l' || c.startsWith('.4l ')) {
+    if (c === '.4c' || c.startsWith('.4c ') || c === '.4l' || c.startsWith('.4l ')) {
       await m.delete().catch(() => {});
       const args = c.slice(4).trim().split(/[\s,]+/).filter((w) => w).slice(0, 10);
       const rd = (x) => x[Math.floor(Math.random() * x.length)];
       const gen4c = () => { let w; do { w = rd('abcdefghijklmnopqrstuvwxyz0123456789') + rd('abcdefghijklmnopqrstuvwxyz0123456789') + rd('abcdefghijklmnopqrstuvwxyz0123456789') + rd('abcdefghijklmnopqrstuvwxyz0123456789'); } while (!/\d/.test(w) || !/[a-z]/.test(w)); return w; };
       const fila = args.length ? args : Array.from({ length: 60 }, gen4c);
       const livres = []; const tomadas = [];
-      const tmp = await whSend(m.channel, painel4l(0, fila.length, livres, tomadas, null, true)).catch(() => null);
-      let checadas = 0; let ultimoEdit = Date.now(); let i = 0; let rlSeguidos = 0;
+      const tmp = await whSend(m.channel, painel4c(0, fila.length, livres, [], true)).catch(() => null);
+      let checadas = 0; let ultimoEdit = Date.now(); let i = 0; let rlSeguidos = 0; const testados = [];
       while (i < fila.length) {
         const w = String(fila[i]).toLowerCase();
         if (!/^[a-z0-9._]{2,32}$/.test(w)) { i++; continue; }
@@ -502,17 +502,19 @@ client.on('messageCreate', async (m) => {
           }
           rlSeguidos = 0;
           const j = await res.json().catch(() => null);
-          if (j && j.taken === false) livres.push(w); else tomadas.push(w);
+          const livre = !!(j && j.taken === false);
+          if (livre) livres.push(w);
+          testados.push({ w, livre });
         } catch (e) { /* rede */ }
         checadas++;
         i++;
         if (tmp && Date.now() - ultimoEdit > 1500) {
-          await whEdit(m.channel, tmp.id, painel4l(checadas, fila.length, livres, tomadas, w, true)).catch(() => {});
+          await whEdit(m.channel, tmp.id, painel4c(checadas, fila.length, livres, testados, true)).catch(() => {});
           ultimoEdit = Date.now();
         }
         await new Promise((r2) => setTimeout(r2, 350));
       }
-      if (tmp) await whEdit(m.channel, tmp.id, painel4l(checadas, fila.length, livres, tomadas, null, false)).catch(() => {});
+      if (tmp) await whEdit(m.channel, tmp.id, painel4c(checadas, fila.length, livres, testados, false)).catch(() => {});
       log('CONSULTA_4L', { livres: livres.length, tentadas: fila.length });
       return;
     }
