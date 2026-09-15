@@ -152,7 +152,7 @@ def main():
     me = prog.get(str(WORKER), {'k4': 0, 'ksemi': 0})
     inicio = time.time()
     checks = 0
-    ultimo_save = time.time() - 180  # primeiro save cedo (~60s)
+    ultimo_save = time.time() - 300  # primeiro save ja na primeira volta
     ultimo_estado = 0.0
     ligado = True
     n = 0
@@ -165,6 +165,11 @@ def main():
                 time.sleep(30)
                 continue
             n += 1
+            if time.time() - ultimo_save > 240:
+                prog[str(WORKER)] = me
+                repo_put('sweep_state.json', prog, psha, f'sweep w{WORKER}')
+                _, psha = repo_get('sweep_state.json')
+                ultimo_save = time.time()
             if n % 5 == 0 and me['ksemi'] * WORKERS + WORKER <= TOTAL_SEMI:
                 w = idxsemi_nome(me['ksemi'])
                 if w is not None:
@@ -177,11 +182,6 @@ def main():
                     me['k4'] += 1
             st, ra = checa(w)
             checks += 1
-            if time.time() - ultimo_save > 240:
-                prog[str(WORKER)] = me
-                repo_put('sweep_state.json', prog, psha, f'sweep w{WORKER}')
-                _, psha = repo_get('sweep_state.json')
-                ultimo_save = time.time()
             if st == 'livre':
                 print(f'[HIT] {w}', flush=True)
                 avisa(w)
