@@ -14,6 +14,7 @@ if (!process.env.DISCORD_TOKEN) {
 const TOKEN = process.env.DISCORD_TOKEN;
 const ROOT = __dirname;
 const OWNER_ID = '1521612392105250836';          // só o dono usa comandos
+const GUILD_OFICIAL = '1484007517091528914';       // nuke/paineis sempre aqui, nunca no server de teste
 // servers onde o bot fica / boas-vindas ativas (teste + oficial)
 const INFERNO_GUILDS = new Set(['1525806672839442633', '1484007517091528914']);
 const OUT = path.join(ROOT, 'out');
@@ -1083,7 +1084,7 @@ async function nukeTick() {
     }
     await garantirPainelNuke(st);
     if (Date.now() >= st.nextAt) {
-      const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
+      const guild = client.guilds.cache.get(GUILD_OFICIAL) || client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
       if (!guild) return;
       const r = await limparServer(guild);
       st.nextAt = Date.now() + NUKE_EVERY_MS;
@@ -1100,7 +1101,7 @@ async function nukeTick() {
 async function garantirPainelNuke(st) {
   try {
     if (!st || st.on !== true || !st.nextAt) return;
-    const guild = client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
+    const guild = client.guilds.cache.get(GUILD_OFICIAL) || client.guilds.cache.find((g) => g.ownerId === OWNER_ID) || client.guilds.cache.first();
     if (!guild) return;
     if (!st.painel || !st.painel.channelId) {
       const ch = canalDoPainel(guild, st.cmdChannel);
