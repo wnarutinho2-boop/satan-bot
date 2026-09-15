@@ -113,10 +113,9 @@ function mentionsOf(t) {
   if (!us.length && !rs.length) return `<@${OWNER_ID}>`;
   return [...us.map((id) => `<@${id}>`), ...rs.map((id) => `<@&${id}>`)].join(' ');
 }
-function bumpMsg(target) {
+function bumpMsg() {
   return {
     flags: 1 << 15,
-    content: mentionsOf(target), // @ pingando (discord mostra acima do card, unica forma de notificar)
     components: [
       {
         type: 17,
@@ -1020,7 +1019,8 @@ async function bumpTick() {
       if (info && now >= info.nextAt) {
         const ch = await client.channels.fetch(cid).catch(() => null);
         if (!ch) { delete st[cid]; fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2)); continue; }
-        await ch.send(bumpMsg(st.target)).catch((e) => err(e));
+        await ch.send(bumpMsg()).catch((e) => err(e));
+        await ch.send({ content: mentionsOf(st.target) }).catch((e) => err(e)); // @ logo abaixo do card, pingando
         delete st[cid]; // lembrete uma vez por bump; so avisa de novo com bump novo
         fs.writeFileSync(BUMP_STATE, JSON.stringify(st, null, 2));
         log('BUMP_LEMBRETE', { channel: cid });
