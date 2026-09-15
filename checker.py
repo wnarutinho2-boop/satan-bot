@@ -31,14 +31,14 @@ except Exception:
     pass
 
 def curl(args, data=None, proxy=None):
-    cmd = ['curl', '-sS', '--max-time', 10]
+    cmd = ['curl', '-sS', '--max-time', '45']
     if proxy:
         cmd += ['-x', 'http://' + proxy]
     cmd += args
     if data is not None:
         cmd += ['-H', 'Content-Type: application/json', '-d', json.dumps(data)]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         return r.stdout
     except Exception:
         return ''
@@ -96,7 +96,9 @@ def repo_put(f, body, sha, msg):
     d = {'message': msg, 'content': base64.b64encode(json.dumps(body).encode()).decode()}
     if sha:
         d['sha'] = sha
-    curl(['-X', 'PUT', '-H', 'Authorization: token ' + GTOK, f'https://api.github.com/repos/{REPO}/contents/{f}'], d)
+    out = curl(['-X', 'PUT', '-H', 'Authorization: token ' + GTOK, f'https://api.github.com/repos/{REPO}/contents/{f}'], d)
+    print('[save]', f, out[:100], flush=True)
+    return out
 
 def estado_on():
     body, _ = repo_get('check_state.json')
@@ -150,7 +152,7 @@ def main():
     me = prog.get(str(WORKER), {'k4': 0, 'ksemi': 0})
     inicio = time.time()
     checks = 0
-    ultimo_save = time.time()
+    ultimo_save = time.time() - 180  # primeiro save cedo (~60s)
     ultimo_estado = 0.0
     ligado = True
     n = 0
@@ -175,6 +177,11 @@ def main():
                     me['k4'] += 1
             st, ra = checa(w)
             checks += 1
+            if time.time() - ultimo_save > 240:
+                prog[str(WORKER)] = me
+                repo_put('sweep_state.json', prog, psha, f'sweep w{WORKER}')
+                _, psha = repo_get('sweep_state.json')
+                ultimo_save = time.time()
             if st == 'livre':
                 print(f'[HIT] {w}', flush=True)
                 avisa(w)
@@ -184,11 +191,6 @@ def main():
                 print(f'[rl] espera {espera:.0f}s', flush=True)
                 time.sleep(espera)
                 continue
-            if time.time() - ultimo_save > 240:
-                prog[str(WORKER)] = me
-                repo_put('sweep_state.json', prog, psha, f'sweep w{WORKER}')
-                _, psha = repo_get('sweep_state.json')
-                ultimo_save = time.time()
             time.sleep(0.7)
         except Exception as e:
             print('[err]', type(e).__name__, flush=True)
