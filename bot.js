@@ -285,7 +285,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json', 'check_state.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json', 'nick_watch.json', 'check_state.json', 'nuke_log.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -1009,12 +1009,15 @@ function nukeOffMsg() {
   };
 }
 // limpa: chat das calls (bulk) + ・confessionario RECRRIA o canal identico (posicao/perms/topic)
+const NUKE_LOG = path.join(ROOT, 'nuke_log.json');
 async function limparServer(guild) {
   let msgs = 0;
+  const nlog = { quando: new Date().toISOString(), confAchado: null, confDelete: null, confCreate: null, anuncio: null, calls: [], erros: [] };
   // 1) PRIMEIRO o confessionario: recria e anuncia na hora (sem esperar as calls)
-  const todos = await guild.channels.fetch().catch(() => guild.channels.cache);
+  const todos = await guild.channels.fetch().catch((e) => { nlog.erros.push('fetch canais: ' + (e && e.message)); return guild.channels.cache; });
   const chans = [...todos.values()];
   const conf = chans.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
+  nlog.confAchado = conf ? conf.id : null;
   if (!conf) log('NUKE_CONF_NAO_ACHADO', { guild: guild.id });
   if (conf) {
     try {
@@ -1034,28 +1037,36 @@ async function limparServer(guild) {
         permissionOverwrites: over,
         reason: 'nuke: renascimento do confessionario',
       };
-      await f.delete('nuke: confessionario renasce').catch((e) => err(e));
-      const novo = await guild.channels.create(spec).catch((e) => { err(e); return null; });
+      await f.delete('nuke: confessionario renasce').then(() => { nlog.confDelete = 'ok'; }).catch((e) => { nlog.confDelete = 'erro: ' + (e && e.message); err(e); });
+      const novo = await guild.channels.create(spec).catch((e) => { nlog.erros.push('create: ' + (e && e.message)); err(e); return null; });
+      nlog.confCreate = novo ? novo.id : null;
       if (novo) {
         log('NUKE_CONF_RECRIADO', { novo: novo.id, pos: novo.position, sistema: eraSistema });
         if (eraSistema) await guild.setSystemChannel(novo).catch((e) => err(e));
         await anunciarNuke(guild); // mensagem entra no canal novo na hora
+        nlog.anuncio = 'ok';
       }
-    } catch (e) { err(e); }
+    } catch (e) { nlog.erros.push('conf: ' + (e && e.message)); err(e); }
   }
+  try { fs.writeFileSync(NUKE_LOG, JSON.stringify(nlog, null, 2)); ghStateSyncTick(); } catch (e) { err(e); }
   // 2) depois as calls (mais rapido: pausa menor entre lotes)
   for (const ch of chans) {
+    if (ch.type !== 2) continue;
+    let q = 0;
     try {
-      if (ch.type !== 2) continue;
       while (true) {
-        const del = await ch.bulkDelete(100, true).catch(() => null);
+        const del = await ch.bulkDelete(100, true).catch((e) => { nlog.erros.push(`call ${ch.name}: ` + (e && e.message)); return null; });
         if (!del || del.size === 0) break;
-        msgs += del.size;
+        q += del.size;
         if (del.size < 100) break;
         await new Promise((r) => setTimeout(r, 600));
       }
-    } catch (e) { err(e); }
+    } catch (e) { nlog.erros.push(`call ${ch.name}: ` + (e && e.message)); err(e); }
+    nlog.calls.push({ canal: ch.name, apagadas: q });
+    msgs += q;
   }
+  nlog.totalMsgs = msgs;
+  try { fs.writeFileSync(NUKE_LOG, JSON.stringify(nlog, null, 2)); ghStateSyncTick(); } catch (e) { err(e); }
   return { msgs };
 }
 
