@@ -102,44 +102,27 @@ def estado_on():
     body, _ = repo_get('check_state.json')
     return (body or {}).get('on', True)
 
-WH_URL = None
-def webhook_adm():
-    global WH_URL
-    if WH_URL:
-        return WH_URL
-    out = curl(['-H', 'Authorization: Bot ' + TOK, f'https://discord.com/api/v10/channels/{CANAL_AVISO}/webhooks'])
-    try:
-        wh = next((w for w in json.loads(out) if w.get('name') == 'Satan'), None)
-        if wh:
-            WH_URL = f"https://discord.com/api/v10/webhooks/{wh['id']}/{wh['token']}"
-            return WH_URL
-    except Exception:
-        pass
-    try:
-        subprocess.run(['curl', '-sS', '--max-time', 15, '-A', UA, '-o', '/tmp/av.png',
-                        'https://cdn.discordapp.com/avatars/1539465305326227477/8063a11739c958a65813bb8fbd98111b.png?size=256'],
-                       capture_output=True, timeout=20)
-        b64 = 'data:image/png;base64,' + base64.b64encode(open('/tmp/av.png', 'rb').read()).decode()
-    except Exception:
-        b64 = None
-    out = curl(['-X', 'POST', '-H', 'Authorization: Bot ' + TOK, f'https://discord.com/api/v10/channels/{CANAL_AVISO}/webhooks'],
-               {'name': 'Satan', **({'avatar': b64} if b64 else {})})
-    try:
-        j = json.loads(out)
-        WH_URL = f"https://discord.com/api/v10/webhooks/{j['id']}/{j['token']}"
-    except Exception:
-        WH_URL = None
-    return WH_URL
-
 def avisa(w):
     if not TOK:
         return
-    url = webhook_adm()
-    if url:
-        curl(['-X', 'POST', url, '-H', 'User-Agent: ' + UA],
+    # webhook com nome+foto do Satan (igual ao resto do server)
+    img = subprocess.run(['curl', '-sS', '--max-time', 15, '-H', 'User-Agent: ' + UA,
+                          'https://cdn.discordapp.com/avatars/1539465305326227477/8063a11739c958a65813bb8fbd98111b.png?size=256'],
+                         capture_output=True).stdout
+    av = 'data:image/png;base64,' + base64.b64encode(img).decode() if img else None
+    body = {'name': 'Satan'}
+    if av:
+        body['avatar'] = av
+    out = curl(['-X', 'POST', f'https://discord.com/api/v10/channels/{CANAL_AVISO}/webhooks',
+                '-H', 'Authorization: Bot ' + TOK, '-H', 'User-Agent: ' + UA], body)
+    try:
+        wh = json.loads(out)
+        curl(['-X', 'POST', wh['url'], '-H', 'User-Agent: ' + UA],
              {'content': f'<@{OWNER}>', 'embeds': [{'title': '4 LIVRE: ' + w,
                'description': 'corre pra pegar antes de outro sniper.', 'color': 8912896}]})
-    else:
+        curl(['-X', 'DELETE', f"https://discord.com/api/v10/webhooks/{wh['id']}",
+              '-H', 'Authorization: Bot ' + TOK, '-H', 'User-Agent: ' + UA])
+    except Exception:
         curl(['-X', 'POST', f'https://discord.com/api/v10/channels/{CANAL_AVISO}/messages',
               '-H', 'Authorization: Bot ' + TOK, '-H', 'User-Agent: ' + UA],
              {'content': f'<@{OWNER}>', 'embeds': [{'title': '4 LIVRE: ' + w,
