@@ -55,6 +55,20 @@ def prox():
 M4 = TOTAL4 // WORKERS
 S4 = 53113  # impar, nao divisivel por 3 -> coprimo com 93312
 
+# padroes na ordem do que ainda cai livre (dados reais do mercado: 6s98 0h3z 8w4a sw29 jc82 skd9 xh7s)
+R = 'shwxzkjvq'                      # consoantes raras
+C = 'bcdfghjklmnpqrstvwxyz'          # consoantes
+PATS = [
+    [D, R, D, R],   # 0h3z
+    [D, R, D, D],   # 6s98
+    [R, C, D, D],   # jc82 skd9
+    [C, C, D, D],   # sw29
+    [D, L, D, L],   # 8w4a
+    [D, L, D, D],
+    [L, L, D, L],   # ek8a
+    [L, L, D, D],
+]
+
 def nome_idx(idx):
     c = []
     for _ in range(4):
@@ -62,8 +76,28 @@ def nome_idx(idx):
         idx //= 36
     return ''.join(reversed(c))
 
+def decode_pat(pat, idx):
+    c = []
+    for cs in reversed(pat):
+        c.append(cs[idx % len(cs)])
+        idx //= len(cs)
+    return ''.join(reversed(c))
+
 def proximo4c(me):
-    # SO 4c: letra E numero misturados; pula os puros da fatia embaralhada
+    pi = me.get('pi', 0)
+    if pi < len(PATS):
+        pat = PATS[pi]
+        size = 1
+        for cs in pat:
+            size *= len(cs)
+        idx = (WORKER - 1) + WORKERS * me.get('pk', 0)
+        if idx >= size:
+            me['pi'] = pi + 1
+            me['pk'] = 0
+            return proximo4c(me)
+        me['pk'] = me.get('pk', 0) + 1
+        return decode_pat(pat, idx)
+    # depois: espaco 4c completo, embaralhado
     for _ in range(300):
         idx = (WORKER - 1) + WORKERS * ((me['k4'] * S4) % M4)
         me['k4'] += 1
@@ -72,14 +106,23 @@ def proximo4c(me):
             return w
     return None
 
+EPS = ['https://discord.com/api/v9/unique-username/username-attempt-unauthed',
+       'https://discord.com/api/v10/unique-username/username-attempt-unauthed']
+EP = [0]
+
 def checa(w):
-    out = curl(['-X', 'POST', 'https://discord.com/api/v9/unique-username/username-attempt-unauthed',
+    out = curl(['-X', 'POST', '-w', '|%{http_code}', EPS[EP[0]],
                 '-H', 'User-Agent: ' + UA], {'username': w}, proxy=prox())
+    code = out.split('|')[-1] if '|' in out else ''
+    body = out.rsplit('|', 1)[0] if '|' in out else out
+    if code in ('404', '403', '000') and EP[0] == 0:
+        EP[0] = 1
+        return checa(w)
     try:
-        j = json.loads(out)
+        j = json.loads(body)
     except Exception:
         return ('erro', None)
-    if 'retry_after' in out:
+    if 'retry_after' in body:
         return ('rl', j.get('retry_after', 60))
     if j.get('taken') is False:
         return ('livre', None)
@@ -157,6 +200,8 @@ def main():
     ultimo_estado = 0.0
     ligado = True
     n = 0
+    delay = 0.7
+    limpos = 0
     while time.time() - inicio < 5.7 * 3600:
         try:
             if time.time() - ultimo_estado > 300:
@@ -187,11 +232,17 @@ def main():
                 avisa(w)
                 salva_hit(w, checks)
             elif st == 'rl':
-                espera = min(float(ra or 60), 120)
-                print(f'[rl] espera {espera:.0f}s', flush=True)
-                time.sleep(espera)
+                delay = min(delay * 1.5, 30)
+                limpos = 0
+                print(f'[rl] delay agora {delay:.1f}s', flush=True)
+                time.sleep(delay)
                 continue
-            time.sleep(0.7)
+            else:
+                limpos += 1
+                if limpos >= 25:
+                    delay = max(delay * 0.9, 0.35)
+                    limpos = 0
+            time.sleep(delay)
         except Exception as e:
             print('[err]', type(e).__name__, flush=True)
             time.sleep(2)
