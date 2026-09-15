@@ -54,25 +54,23 @@ def prox():
 # ainda cobre 100% do espaco sem repeticao entre workers
 M4 = TOTAL4 // WORKERS
 S4 = 53113  # impar, nao divisivel por 3 -> coprimo com 93312
-MSE = TOTAL_SEMI // WORKERS
-SSE = 9625  # coprimo com 15552
 
-def idx4_nome(k):
-    idx = (WORKER - 1) + WORKERS * ((k * S4) % M4)
+def nome_idx(idx):
     c = []
     for _ in range(4):
         c.append(A36[idx % 36])
         idx //= 36
     return ''.join(reversed(c))
 
-def idxsemi_nome(k):
-    idx = (WORKER - 1) + WORKERS * ((k * SSE) % MSE)
-    base = idx % (36 ** 3)
-    resto = idx // (36 ** 3)         # 0..5 = pos(0..2)*2 + sep
-    pos, si = resto // 2, resto % 2
-    c = [A36[base // 1296], A36[(base // 36) % 36], A36[base % 36]]
-    c.insert(pos, S[si])
-    return ''.join(c)
+def proximo4c(me):
+    # SO 4c: letra E numero misturados; pula os puros da fatia embaralhada
+    for _ in range(300):
+        idx = (WORKER - 1) + WORKERS * ((me['k4'] * S4) % M4)
+        me['k4'] += 1
+        w = nome_idx(idx)
+        if any(ch in D for ch in w) and any(ch in L for ch in w):
+            return w
+    return None
 
 def checa(w):
     out = curl(['-X', 'POST', 'https://discord.com/api/v9/unique-username/username-attempt-unauthed',
@@ -173,16 +171,12 @@ def main():
                 repo_put('sweep_state.json', prog, psha, f'sweep w{WORKER}')
                 _, psha = repo_get('sweep_state.json')
                 ultimo_save = time.time()
-            if n % 5 == 0 and me['ksemi'] * WORKERS + WORKER <= TOTAL_SEMI:
-                w = idxsemi_nome(me['ksemi'])
-                if w is not None:
-                    me['ksemi'] += 1
-            else:
-                w = idx4_nome(me['k4'])
-                if w is None:  # espaco 4 acabou: vira aleatorio eterno
+            w = proximo4c(me)
+            if w is None:  # fatia acabou: 4c aleatorio eterno
+                while True:
                     w = ''.join(random.choice(A36) for _ in range(4))
-                else:
-                    me['k4'] += 1
+                    if any(ch in D for ch in w) and any(ch in L for ch in w):
+                        break
             st, ra = checa(w)
             checks += 1
             me['st'] = st
