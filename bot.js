@@ -982,7 +982,8 @@ function nukeAnuncioMsg() {
   };
 }
 async function anunciarNuke(guild) {
-  const ch = guild.channels.cache.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
+  const all = await guild.channels.fetch().catch(() => guild.channels.cache);
+  const ch = [...all.values()].find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
   if (!ch) return;
   const msg = await whSend(ch, nukeAnuncioMsg()).catch((e) => { err(e); return null; });
   if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
@@ -1007,7 +1008,10 @@ function nukeOffMsg() {
 async function limparServer(guild) {
   let msgs = 0;
   // 1) PRIMEIRO o confessionario: recria e anuncia na hora (sem esperar as calls)
-  const conf = [...guild.channels.cache.values()].find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
+  const todos = await guild.channels.fetch().catch(() => guild.channels.cache);
+  const chans = [...todos.values()];
+  const conf = chans.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
+  if (!conf) log('NUKE_CONF_NAO_ACHADO', { guild: guild.id });
   if (conf) {
     try {
       const f = await conf.fetch().catch(() => conf);
@@ -1036,7 +1040,7 @@ async function limparServer(guild) {
     } catch (e) { err(e); }
   }
   // 2) depois as calls (mais rapido: pausa menor entre lotes)
-  for (const ch of [...guild.channels.cache.values()]) {
+  for (const ch of chans) {
     try {
       if (ch.type !== 2) continue;
       while (true) {
