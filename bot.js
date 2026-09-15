@@ -881,16 +881,14 @@ function canalDoPainel(guild, preferId) {
 }
 function nukeAnuncioMsg() {
   return {
-    flags: 1 << 15,
-    components: [{ type: 17, accent_color: 8912896, components: [
-      { type: 10, content: '# as portas do inferno foram abertas' },
-      { type: 10, content: 'o nuke passou: calls limpas, ・confessionario renascido.' },
-    ]}],
+    embeds: [{ title: 'As portas do inferno foram abertas', color: 8912896 }],
   };
 }
 async function anunciarNuke(guild) {
-  const ch = guild.channels.cache.find((c) => c.type === 0 && /inferno/i.test(c.name || ''));
-  if (ch) await ch.send(nukeAnuncioMsg()).catch((e) => err(e));
+  const ch = guild.channels.cache.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
+  if (!ch) return;
+  const msg = await ch.send(nukeAnuncioMsg()).catch((e) => { err(e); return null; });
+  if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
 }
 function nukeManualMsg() {
   return {
