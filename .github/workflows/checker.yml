@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '10 */6 * * *'   # religa os workers a cada 6h (job max = 6h)
+permissions:
+  contents: write            # workers salvam progresso (sweep_state) e hits no repo
 jobs:
   check:
     runs-on: ubuntu-latest
