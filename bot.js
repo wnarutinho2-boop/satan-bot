@@ -880,7 +880,7 @@ function canalDoPainel(guild, preferId) {
 }
 function nukeAnuncioMsg() {
   return {
-    embeds: [{ title: 'As portas do inferno foram abertas', color: 8912896 }],
+    embeds: [{ description: 'As portas do inferno foram abertas', color: 8912896 }],
   };
 }
 async function anunciarNuke(guild) {
