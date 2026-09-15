@@ -213,6 +213,7 @@ client.once('ready', async () => {
   log('READY', { user: client.user.tag, id: client.user.id, guilds: client.guilds.cache.size });
   client.user.setActivity('o sofrimento dos condenados', { type: 3 });
   varrerLinks().catch(err); // apaga link que entrou durante o reinicio
+  caca4lPadroes().catch(err); // caca 4l/3l/4n/semi em background
   varrerFlood().catch(err); // apaga sobra de flood que entrou durante o reinicio
   (async () => {
     const stN = readJsonSafe(NUKE_STATE, {});
@@ -255,7 +256,7 @@ client.on('guildMemberAdd', async (member) => {
 
 // ---------- .fig: fabrica de figurinhas (quadradas 320x320, <=512KB) ----------
 // ---------- estado persistente no repo GitHub (sobrevive a religadas/updates) ----------
-const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json'];
+const GH_STATE_FILES = ['nuke_state.json', 'bump_state.json', 'mute_state.json', 'hunt4l.json'];
 async function ghStateLoad() {
   const tok = process.env.GITHUB_TOKEN, repo = process.env.GITHUB_REPOSITORY;
   if (!tok || !repo) return;
@@ -1070,6 +1071,57 @@ async function bumpTick() {
 }
 
 // overflow (call cheia -> cria outra) removido a pedido do dono
+
+// ---------- caca 4l/3l/4n/semi: roda uma vez por religada, salva no repo ----------
+const HUNT4L = path.join(ROOT, 'hunt4l.json');
+async function caca4lPadroes() {
+  const st = readJsonSafe(HUNT4L, {});
+  if (st && st.done) return; // ja cacou nessa versao do estado
+  const L = 'abcdefghijklmnopqrstuvwxyz', D = '0123456789', S = '._';
+  const r = (x) => x[Math.floor(Math.random() * x.length)];
+  const temDig = (w) => /\d/.test(w);
+  const pats = {
+    '3l': () => r(L) + r(L) + r(L),
+    '3c': () => { let w; do { w = r(L + D) + r(L + D) + r(L + D); } while (!temDig(w)); return w; },
+    '4l': () => r(L) + r(L) + r(L) + r(L),
+    '4c': () => { let w; do { w = r(L + D) + r(L + D) + r(L + D) + r(L + D); } while (!temDig(w)); return w; },
+    '4n': () => r(D) + r(D) + r(D) + r(D),
+    'semi3l': () => { const a = r(L) + r(L) + r(L); const p = 1 + Math.floor(Math.random() * 2); return a.slice(0, p) + r(S) + a.slice(p); },
+    'semi3c': () => { const a = r(L) + r(D) + r(L); const p = 1 + Math.floor(Math.random() * 2); return a.slice(0, p) + r(S) + a.slice(p); },
+    'semi4n': () => { const a = r(D) + r(D) + r(D) + r(D); const p = 1 + Math.floor(Math.random() * 3); return a.slice(0, p) + r(S) + a.slice(p); },
+  };
+  const out = { done: false, achados: {}, tentadas: 0, inicio: Date.now() };
+  for (const [nome, gen] of Object.entries(pats)) {
+    const ach = []; let tries = 0; const vistas = new Set();
+    while (tries < 100 && ach.length < 3) {
+      const w = gen();
+      if (vistas.has(w)) continue;
+      vistas.add(w); tries++; out.tentadas++;
+      try {
+        const res = await fetch('https://discord.com/api/v9/unique-username/username-attempt-unauthed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          body: JSON.stringify({ username: w }),
+        });
+        if (res.status === 429) {
+          const j = await res.json().catch(() => null);
+          const ra = ((j && j.retry_after) || 30) * 1000;
+          if (ra > 45000) break; // limite longo: pula o resto desse padrao
+          await new Promise((r2) => setTimeout(r2, ra));
+          tries--; continue;
+        }
+        const j = await res.json().catch(() => null);
+        if (j && j.taken === false) ach.push(w);
+      } catch (e) { /* rede */ }
+      await new Promise((r2) => setTimeout(r2, 300));
+    }
+    out.achados[nome] = ach;
+    fs.writeFileSync(HUNT4L, JSON.stringify(out));
+  }
+  out.done = true; out.fim = Date.now();
+  fs.writeFileSync(HUNT4L, JSON.stringify(out));
+  log('CACA_4L_PADROES', { tentadas: out.tentadas, achados: Object.values(out.achados).flat().length });
+}
 
 setInterval(nukeTick, 60 * 1000);
 setInterval(() => { editarPainelNuke(readJsonSafe(NUKE_STATE, {})).catch(() => {}); }, 5 * 1000); // relogio vivo do painel (5s)
