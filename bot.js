@@ -97,7 +97,7 @@ function menuMsg() {
         components: [
           { type: 10, content: '# Comandos do Satan' },
           { type: 14, spacing: 1, divider: true },
-          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 3h limpa o chat das calls e o ・confessionario; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
+          { type: 10, content: '**.menu** — este menu\n**.nuke on / .nuke off** — a cada 3h limpa o chat das calls e recria o ・confessionario do zero; o painel de contagem fica no canal do comando (nunca no confessionario) / desliga\n**.cl [qtd]** — apaga o proprio comando + qtd mensagens de cima (sem valor = 10)\n**.fig** — fabrica de figurinhas (foto/video/gif viram sticker quadrado)\n**.bump** — painel de quem o lembrete de 2h marca\n**.att [arquivo]** — atualiza o bot e religa com o codigo novo' },
         ],
       },
     ],
@@ -786,7 +786,7 @@ function nukePainelMsg(nextAt) {
         { type: 10, content: barraResto(nextAt) },
         { type: 10, content: 'próxima limpeza às ' + horaBrasilia(nextAt) + ' (horario de brasilia)' },
         { type: 14, spacing: 1 },
-        { type: 10, content: 'alvo configurado: chat de **todas as calls** + **・confessionario** (ja vem configurado).\nrepete a cada 3h. o relogio anda a cada 5 segundos.' },
+        { type: 10, content: 'alvo configurado: chat de **todas as calls** limpa + **・confessionario** renasce do zero (mesma posicao e perms).\nrepete a cada 3h. o relogio anda a cada 5 segundos.' },
       ],
     }],
   };
@@ -808,20 +808,42 @@ function nukeOffMsg() {
     ]}],
   };
 }
-// limpa: chat das calls + ・confessionario (alvo fixo; canal do comando nunca entra)
+// limpa: chat das calls (bulk) + ・confessionario RECRRIA o canal identico (posicao/perms/topic)
 async function limparServer(guild) {
   let msgs = 0;
-  for (const ch of guild.channels.cache.values()) {
+  for (const ch of [...guild.channels.cache.values()]) {
     try {
-      // 2 = canal de voz (chat da call); texto so o confessionario
-      const ehConf = (ch.type === 0 || ch.type === 5) && /confessionar/i.test(ch.name || '');
-      if (ch.type === 2 || ehConf) {
+      if (ch.type === 2) { // call: limpa o chat de texto dela
         while (true) {
           const del = await ch.bulkDelete(100, true).catch(() => null);
           if (!del || del.size === 0) break;
           msgs += del.size;
           if (del.size < 100) break;
           await new Promise((r) => setTimeout(r, 1500));
+        }
+      } else if ((ch.type === 0 || ch.type === 5) && /confessionar/i.test(ch.name || '')) {
+        // confessionario: snapshot completo -> apaga o canal -> recria identico
+        const f = await ch.fetch().catch(() => ch);
+        const eraSistema = guild.systemChannelId === f.id;
+        const over = f.permissionOverwrites.cache.map((o) => ({
+          id: o.id, type: o.type, allow: o.allow.bitfield.toString(), deny: o.deny.bitfield.toString(),
+        }));
+        const spec = {
+          name: f.name,
+          type: f.type,
+          parent: f.parentId || undefined,
+          topic: f.topic || undefined,
+          nsfw: f.nsfw,
+          rateLimitPerUser: f.rateLimitPerUser || undefined,
+          position: f.position,
+          permissionOverwrites: over,
+          reason: 'nuke: renascimento do confessionario',
+        };
+        await f.delete('nuke: confessionario renasce').catch((e) => err(e));
+        const novo = await guild.channels.create(spec).catch((e) => { err(e); return null; });
+        if (novo) {
+          log('NUKE_CONF_RECRIADO', { novo: novo.id, pos: novo.position, sistema: eraSistema });
+          if (eraSistema) await guild.setSystemChannel(novo).catch((e) => err(e));
         }
       }
     } catch (e) { err(e); }
