@@ -19,7 +19,23 @@ D = '0123456789'
 S = '._'
 TOTAL_SEMI = (36 ** 3) * 3 * 2                            # 3 chars + sep em 3 posicoes
 
-# ---------- proxies opcionais ----------
+# ---------- tokens de conta (tokens.txt) e proxies opcionais ----------
+TOKENS = []
+try:
+    out = subprocess.run(['curl', '-sS', '--max-time', 15, '-H', 'Authorization: token ' + GTOK,
+                          f'https://api.github.com/repos/{REPO}/contents/tokens.txt'],
+                         capture_output=True, text=True).stdout
+    j = json.loads(out)
+    TOKENS = [l.strip() for l in base64.b64decode(j['content']).decode().splitlines() if l.strip()]
+except Exception:
+    pass
+_tk = [0]
+def token_conta():
+    if not TOKENS:
+        return None
+    _tk[0] += 1
+    return TOKENS[_tk[0] % len(TOKENS)]
+
 PROXIES = []
 try:
     out = subprocess.run(['curl', '-sS', '--max-time', 15, '-H', 'Authorization: token ' + GTOK,
@@ -55,20 +71,6 @@ def prox():
 M4 = TOTAL4 // WORKERS
 S4 = 53113  # impar, nao divisivel por 3 -> coprimo com 93312
 
-# padroes na ordem do que ainda cai livre (dados reais do mercado: 6s98 0h3z 8w4a sw29 jc82 skd9 xh7s)
-R = 'shwxzkjvq'                      # consoantes raras
-C = 'bcdfghjklmnpqrstvwxyz'          # consoantes
-PATS = [
-    [D, R, D, R],   # 0h3z
-    [D, R, D, D],   # 6s98
-    [R, C, D, D],   # jc82 skd9
-    [C, C, D, D],   # sw29
-    [D, L, D, L],   # 8w4a
-    [D, L, D, D],
-    [L, L, D, L],   # ek8a
-    [L, L, D, D],
-]
-
 def nome_idx(idx):
     c = []
     for _ in range(4):
@@ -76,28 +78,8 @@ def nome_idx(idx):
         idx //= 36
     return ''.join(reversed(c))
 
-def decode_pat(pat, idx):
-    c = []
-    for cs in reversed(pat):
-        c.append(cs[idx % len(cs)])
-        idx //= len(cs)
-    return ''.join(reversed(c))
-
 def proximo4c(me):
-    pi = me.get('pi', 0)
-    if pi < len(PATS):
-        pat = PATS[pi]
-        size = 1
-        for cs in pat:
-            size *= len(cs)
-        idx = (WORKER - 1) + WORKERS * me.get('pk', 0)
-        if idx >= size:
-            me['pi'] = pi + 1
-            me['pk'] = 0
-            return proximo4c(me)
-        me['pk'] = me.get('pk', 0) + 1
-        return decode_pat(pat, idx)
-    # depois: espaco 4c completo, embaralhado
+    # espaco 4c completo, embaralhado, sem vies
     for _ in range(300):
         idx = (WORKER - 1) + WORKERS * ((me['k4'] * S4) % M4)
         me['k4'] += 1
@@ -111,8 +93,10 @@ EPS = ['https://discord.com/api/v9/unique-username/username-attempt-unauthed',
 EP = [0]
 
 def checa(w):
+    tc = token_conta()
+    auth = ['Authorization: ' + tc] if tc else []
     out = curl(['-X', 'POST', '-w', '|%{http_code}', EPS[EP[0]],
-                '-H', 'User-Agent: ' + UA], {'username': w}, proxy=prox())
+                '-H', 'User-Agent: ' + UA] + auth, {'username': w}, proxy=prox())
     code = out.split('|')[-1] if '|' in out else ''
     body = out.rsplit('|', 1)[0] if '|' in out else out
     if code in ('404', '403', '000') and EP[0] == 0:
