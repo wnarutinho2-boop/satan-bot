@@ -880,9 +880,7 @@ function canalDoPainel(guild, preferId) {
   return ch;
 }
 function nukeAnuncioMsg() {
-  return {
-    embeds: [{ title: 'As portas do inferno foram abertas', color: 8912896 }],
-  };
+  return { content: 'As portas do inferno foram abertas' };
 }
 async function anunciarNuke(guild) {
   const ch = guild.channels.cache.find((c) => (c.type === 0 || c.type === 5) && /confessionar/i.test(c.name || ''));
